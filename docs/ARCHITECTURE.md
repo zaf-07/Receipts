@@ -219,4 +219,4 @@ Delivery itself is simulated: the send is recorded, charged and attributed, and 
 - **Band room tests:** mention handoffs, the blocking review, the task board with each agent's own status, a person approving and rejecting in the room, and an agent's forged approval being ignored.
 - **Flexprice tests:** the customer and wallet are found or created once, usage is metered as events, the wallet balance becomes the credit balance in both directions, nothing is corrected mid-run, top-ups are idempotent, and an outage leaves the ledger untouched.
 - **Mail server check:** a domain with mail servers, a null MX, no record, and a lookup that fails or times out.
-- **One end-to-end run** of the pipeline over the HTTP API on the seeded world.
+- **One end-to-end run** of the pipeline over the HTTP API on the seeded world. It ends by checking the team room: the conversation and the board are recorded without Band, and an instruction to an agent is kept.

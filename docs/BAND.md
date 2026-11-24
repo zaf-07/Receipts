@@ -93,6 +93,10 @@ Each lead's outreach is one card on the room's task board (the **Work** tab in B
 
 The result of each step is kept as a comment on the card, so the card carries its own history. **Reset the demo** archives the cards of the previous run.
 
+## The same room in the app
+
+Every handoff, request, decision and card is written to Receipts' own store first and sent to Band second. The **Agent team** screen reads that store: its Conversation tab is the room, its Board tab is the task board, and a line that Band accepted is marked *in Band*. So the screen and the Band room cannot disagree, a person can decide in either place, and without Band the team's conversation is still there to read.
+
 ## Setup with Band Desktop
 
 1. Install Band Desktop and sign in. The `band` command-line tool comes with it.

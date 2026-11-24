@@ -125,7 +125,13 @@ The rules that make parallel work safe:
 - **Agents append, never overwrite.** The Skeptic adds a verdict (`verifications`) and a new draft version (`message_versions`); the Writer's version stays in the history. Lead state is derived by the orchestrator from the receipts.
 - **One door out.** [server/services/delivery.ts](server/services/delivery.ts) is the only code that can mark a message sent. It needs an open human review task for that exact draft and refuses to run from inside any agent task.
 
-The **Agent team** screen shows the team shape, every task by status, and each task's inputs, outputs, attempts, blocker and draft history. The activity sidebar is the event stream: each handoff is linked to its task and shows the receipts involved. Events are collected in one place, the task records are the model, and the screens only render them.
+The **Agent team** screen shows the team at work, not only its results. A crew strip says in one line what each agent is doing right now, and three views sit under it:
+
+- **Conversation.** What the agents said to each other, in order: each handoff names the next agent and carries the receipts it relied on, each request for a decision has Approve and Reject right under it, and you can tell any agent how to work from the same box. With Band connected, every line is marked as being in the Band room.
+- **Board.** One card per lead, moving through five steps: contact, draft, verify, scan, and your decision. A card that stopped says who stopped it and why, and opens to its full history.
+- **Workspace.** One agent's desk: what it is for, what it is doing this second with its live log, what it was last handed, your standing instructions, and every task it has done laid out as what it was given, what it did and what it produced.
+
+The conversation and the board are recorded locally first and sent to Band second, so the screen and the Band room show the same thing, and the screen works without Band. The activity sidebar is the event stream: each handoff is linked to its task and shows the receipts involved. Events are collected in one place, the task records are the model, and the screens only render them.
 
 `RECEIPTS_CONCURRENCY` (default 4) sets how many tasks run at once, and `RECEIPTS_LEASE_MS` (default 30000) sets the lease length.
 

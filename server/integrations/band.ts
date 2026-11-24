@@ -1,5 +1,6 @@
-import type { ActivityEntry, AgentName } from '../../shared/types';
+import type { ActivityEntry, AgentName, CardStatus, RoomMessage } from '../../shared/types';
 import { config } from '../config';
+import { markInBand, recordCard, recordMessage } from '../services/room';
 
 // Band is the room where the Receipts agents hand work to each other and where a person makes
 // the call. This module speaks Band's Agent API (docs.band.ai):
@@ -13,6 +14,8 @@ import { config } from '../config';
 //     status on that card as the work passes through its hands.
 //
 // Band is never a dependency: every call is best-effort, and the pipeline runs the same without it.
+// Everything said here is written to the local room first (services/room.ts), so the Agent team
+// screen shows the same conversation and board with or without a Band room.
 // A reply is only ever acted on when Band says a User sent it. An agent cannot approve anything.
 
 /**
@@ -234,6 +237,12 @@ async function postEvent(from: Speaker, type: 'task' | 'error' | 'thought' | 'at
   return reply.ok ? ((reply.data as { id?: string } | null)?.id ?? null) : null;
 }
 
+/** What a message is about, so the screen can thread it by lead and link the draft. */
+export interface Ref {
+  lead?: string | null;
+  draft?: string | null;
+}
+
 async function postMessage(from: Speaker, target: { id: string; handle: string | null; name: string | null }, text: string): Promise<boolean> {
   const who = sender(from);
   const handle = target.handle ?? target.name ?? 'there';
@@ -252,18 +261,20 @@ async function postMessage(from: Speaker, target: { id: string; handle: string |
  * mentions, so a handoff mentions the next agent. When that role has no agent of its own in the
  * room there is nobody to mention, and the handoff is recorded as an event instead.
  */
-export function say(from: Speaker, to: Speaker | 'human', text: string): void {
+export function say(from: Speaker, to: Speaker | 'human', text: string, ref: Ref = {}, kind: RoomMessage['kind'] = 'handoff'): void {
+  const local = recordMessage({ from, to, kind: to === 'human' && kind === 'handoff' ? 'update' : kind, text, lead_id: ref.lead, draft_id: ref.draft });
   if (!state.ready) return;
   void later(async () => {
     const me = sender(from);
+    let sent = false;
     if (to === 'human') {
-      if (state.human) await postMessage(from, state.human, text);
-      else await postEvent(from, 'task', text);
-      return;
+      sent = state.human ? await postMessage(from, state.human, text) : Boolean(await postEvent(from, 'task', text));
+    } else {
+      const target = state.identities.get(to);
+      if (target && target.id !== me.id) sent = await postMessage(from, target, text);
+      else sent = Boolean(await postEvent(from, 'task', `${text} (for the ${to})`));
     }
-    const target = state.identities.get(to);
-    if (target && target.id !== me.id) await postMessage(from, target, text);
-    else await postEvent(from, 'task', `${text} (for the ${to})`);
+    if (sent) markInBand(local);
   });
 }
 
@@ -272,12 +283,13 @@ export function say(from: Speaker, to: Speaker | 'human', text: string): void {
  * resolved. The instruction names the agent instead of writing its handle: Band reads the owner's
  * handle at the front of `@owner/agent` as a mention of the owner.
  */
-export function requestDecision(from: Speaker, draftId: string, text: string, card?: string): void {
+export function requestDecision(from: Speaker, draftId: string, text: string, card?: string, ref: Ref = {}): void {
+  const local = recordMessage({ from, to: 'human', kind: 'review', text, lead_id: ref.lead, draft_id: draftId });
   if (!state.ready) return;
   void later(async () => {
     const me = sender(from);
     const how = `To decide, mention ${me.name} here and write "approve ${draftId}" or "reject ${draftId} <reason>".`;
-    if (state.human) await postMessage(from, state.human, `${text} ${how}`);
+    if (state.human && (await postMessage(from, state.human, `${text} ${how}`))) markInBand(local);
     const task = card ? state.cards.get(card) : undefined;
     const id = await postEvent(from, 'attention', `Review open for ${draftId}. Nothing sends until a person decides.`, {
       kind: 'review',
@@ -290,7 +302,8 @@ export function requestDecision(from: Speaker, draftId: string, text: string, ca
 }
 
 /** The decision is made. Resolve the open review in the room and say what happened. */
-export function resolveDecision(draftId: string, text: string): void {
+export function resolveDecision(draftId: string, text: string, ref: Ref = {}): void {
+  const local = recordMessage({ from: 'orchestrator', to: 'human', kind: 'update', text, lead_id: ref.lead, draft_id: draftId });
   if (!state.ready) return;
   void later(async () => {
     const review = state.reviews.get(draftId);
@@ -298,13 +311,11 @@ export function resolveDecision(draftId: string, text: string): void {
       await postEvent('orchestrator', 'task', text, { resolves: review, draft_id: draftId });
       state.reviews.delete(draftId);
     }
-    if (state.human) await postMessage('orchestrator', state.human, text);
+    if (state.human && (await postMessage('orchestrator', state.human, text))) markInBand(local);
   });
 }
 
 // ---------- the room's task board ----------
-
-export type CardStatus = 'pending' | 'in_progress' | 'blocked' | 'in_review' | 'failed' | 'completed';
 
 export interface CardStep {
   from: Speaker;
@@ -320,7 +331,8 @@ export interface CardStep {
  * mentioned. Each step is one agent reporting its own status, which is how Band assigns work:
  * an agent joins a card by reporting on it, and nobody can report for another agent.
  */
-export function track(subject: string, detail: string, steps: CardStep[]): void {
+export function track(subject: string, detail: string, steps: CardStep[], leadId: string | null = null): void {
+  recordCard(subject, detail, leadId, steps.map((s) => ({ agent: s.from, status: s.status, doing: s.doing ?? null, comment: s.comment ?? null })));
   if (!state.ready) return;
   void later(async () => {
     let id = state.cards.get(subject);

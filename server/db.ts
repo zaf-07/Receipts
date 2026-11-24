@@ -220,6 +220,30 @@ CREATE TABLE IF NOT EXISTS agent_task_messages (
   created_at TEXT NOT NULL
 );
 
+-- The team's room, kept locally: every handoff, request and decision, and every card on the board.
+-- Band is sent the same thing when it is connected.
+CREATE TABLE IF NOT EXISTS room_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL,
+  sender TEXT NOT NULL,
+  author TEXT,
+  recipient TEXT,
+  kind TEXT NOT NULL,
+  body TEXT NOT NULL,
+  lead_id TEXT,
+  draft_id TEXT,
+  in_band INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS room_cards (
+  subject TEXT PRIMARY KEY,
+  lead_id TEXT,
+  detail TEXT NOT NULL,
+  steps TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 -- One row per model call: who asked, on which task, and what it cost. This is the execution telemetry.
 CREATE TABLE IF NOT EXISTS llm_usage (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -268,6 +292,8 @@ const TABLES = [
   'verifications',
   'message_versions',
   'agent_task_messages',
+  'room_messages',
+  'room_cards',
   'llm_usage',
   'world_pages',
 ];
@@ -342,7 +368,7 @@ export function setSetting(key: string, value: unknown): void {
 /** Empties every table. Used by the demo reset. */
 export function wipe(): void {
   for (const table of TABLES) db.exec(`DELETE FROM ${table};`);
-  db.exec("DELETE FROM sqlite_sequence WHERE name IN ('ledger', 'activity', 'verifications', 'message_versions', 'agent_task_messages', 'llm_usage');");
+  db.exec("DELETE FROM sqlite_sequence WHERE name IN ('ledger', 'activity', 'verifications', 'message_versions', 'agent_task_messages', 'llm_usage', 'room_messages');");
   settingsCache.clear();
 }
 

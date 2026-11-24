@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { once } from 'node:events';
-import type { Profile, Stage } from '../shared/types';
+import type { AgentName, Profile, Stage } from '../shared/types';
 import { REGIONS } from '../shared/constants';
 import { config } from './config';
 import { initDb } from './db';
@@ -28,6 +28,7 @@ import {
   receiveInboundReply,
   reject,
   resetDemo,
+  instruct,
   resume,
   retry,
   syncBilling,
@@ -128,6 +129,15 @@ export function createApp() {
 
   api.post('/goals', async (req, res) => {
     res.status(202).json(await startGoal(text(req.body.goal, 1200)));
+  });
+
+  // A person tells one agent how to work. It reaches the agent on its next run, like a note left in the Band room.
+  api.post('/team/notes', (req, res) => {
+    const role = text(req.body.agent, 20);
+    const body = text(req.body.body, 1600);
+    if (!AGENT_ROLES.some((r) => r.role === role && r.role !== 'human')) throw new UserError('Choose one of the agents.');
+    if (!body) throw new UserError('Write the instruction first.');
+    res.status(201).json({ ok: true, answer: instruct(role as AgentName, body, text(req.body.author, 80) || 'Human') });
   });
 
   api.post('/tasks/:id/status', (req, res) => {

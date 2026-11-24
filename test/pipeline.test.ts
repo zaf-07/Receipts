@@ -324,3 +324,51 @@ test('receipts expire on their own and the lead goes back to not yet', async () 
   assert.equal(lead(snap, 'Northbeam AI').message?.status, 'blocked');
   assert.equal(lead(snap, 'Orbitcast').state, 'not_yet', 'the hiring freeze expired too');
 });
+
+test('the team room keeps the conversation and the board, with or without Band', async () => {
+  let snap = await settled();
+  const { roles, room, band } = snap.team;
+  assert.equal(band.connected, false, 'this run has no Band room');
+  assert.deepEqual(roles.map((r) => r.role), ['planner', 'researcher', 'enricher', 'writer', 'skeptic', 'security', 'human', 'analyst']);
+
+  // Every line the agents exchanged is kept locally, in order, and none claims to be in Band.
+  const kinds = new Set(room.messages.map((m) => m.kind));
+  for (const kind of ['handoff', 'review', 'decision', 'update']) assert.ok(kinds.has(kind as never), `the room holds a ${kind}`);
+  assert.ok(room.messages.every((m) => !m.in_band));
+  assert.deepEqual([...room.messages].sort((a, b) => a.id - b.id), room.messages);
+
+  const handoff = room.messages.find((m) => m.from === 'enricher' && m.to === 'writer')!;
+  assert.ok(snap.leads.some((l) => l.id === handoff.lead_id), 'a handoff says which lead it is about');
+  const review = room.messages.find((m) => m.kind === 'review')!;
+  assert.deepEqual([review.from, review.to], ['security', 'human']);
+  assert.match(review.draft_id ?? '', /^m_/, 'a request for a decision names its draft');
+  const decision = room.messages.find((m) => m.kind === 'decision')!;
+  assert.equal(decision.from, 'human');
+  assert.ok(decision.author, 'a decision carries the name of the person who made it');
+  assert.match(decision.text, /^(approve|reject) m_/);
+
+  // One card per lead that reached the Enricher, and each agent's own steps on it, with the times.
+  const subjects = room.cards.map((c) => c.subject);
+  assert.equal(new Set(subjects).size, subjects.length, 'no lead has two cards');
+  const quill = room.cards.find((c) => c.subject === 'Outreach to Quillstack')!;
+  assert.equal(quill.lead_id, lead(snap, 'Quillstack').id);
+  for (const agent of ['enricher', 'writer', 'skeptic', 'security']) assert.ok(quill.steps.some((s) => s.agent === agent), `${agent} reported on the card`);
+  assert.deepEqual(quill.steps.slice(0, 2).map((s) => [s.agent, s.status]), [['enricher', 'in_progress'], ['enricher', 'completed']]);
+  assert.ok(quill.steps.every((s) => s.at), 'every step is timed');
+
+  // A person tells one agent how to work. Both sides of the exchange are in the room, and the agent keeps the note.
+  const before = room.messages.length;
+  await api('/team/notes', { agent: 'writer', body: 'Keep every email under sixty words.', author: 'Dana' });
+  snap = await settled();
+  assert.deepEqual(
+    snap.team.room.messages.slice(before).map((m) => [m.from, m.to, m.kind, m.author]),
+    [
+      ['human', 'writer', 'note', 'Dana'],
+      ['writer', 'human', 'update', null],
+    ],
+  );
+  const standing = snap.tasks.find((t) => t.kind === 'manual' && t.agent === 'writer')!;
+  assert.ok(snap.task_messages.some((m) => m.task_id === standing.id && m.body === 'Keep every email under sixty words.'));
+  await assert.rejects(api('/team/notes', { agent: 'human', body: 'x' }), /Choose one of the agents/);
+  await assert.rejects(api('/team/notes', { agent: 'writer', body: '   ' }), /Write the instruction first/);
+});

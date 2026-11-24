@@ -244,6 +244,59 @@ export type AgentName =
   | 'system'
   | 'world';
 
+/** Who can speak in the team room: any agent, the person, or the orchestrator that leads them. */
+export type RoomSpeaker = AgentName | 'orchestrator';
+
+/**
+ * One line in the team room. A handoff passes work to the next agent, a review asks a person to
+ * decide, a decision is what the person said, a note is an instruction to an agent, and an update
+ * reports what happened.
+ */
+export interface RoomMessage {
+  id: number;
+  at: string;
+  from: RoomSpeaker;
+  /** The person's name, when a person wrote it. */
+  author: string | null;
+  to: RoomSpeaker | null;
+  kind: 'handoff' | 'review' | 'decision' | 'note' | 'update';
+  text: string;
+  lead_id: string | null;
+  draft_id: string | null;
+  /** The same message is in the Band room. */
+  in_band: boolean;
+}
+
+export type CardStatus = 'pending' | 'in_progress' | 'blocked' | 'in_review' | 'failed' | 'completed';
+
+/** One agent reporting its own status on a card. */
+export interface RoomCardStep {
+  agent: RoomSpeaker;
+  status: CardStatus;
+  /** What the agent says it is doing right now. */
+  doing: string | null;
+  /** What it found or decided. Kept as the history of the card. */
+  comment: string | null;
+  at: string;
+}
+
+/** One piece of work on the team board: a lead's outreach, from the contact to the decision. */
+export interface RoomCard {
+  subject: string;
+  lead_id: string | null;
+  detail: string;
+  steps: RoomCardStep[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentRole {
+  role: string;
+  job: string;
+  stops_when: string;
+  hands_off_to: string;
+}
+
 export interface ActivityEntry {
   id: number;
   at: string;
@@ -438,6 +491,10 @@ export interface Snapshot {
     /** Model calls so far: tokens and, where the price is known, dollars. */
     usage: { calls: number; input_tokens: number; output_tokens: number; cost_usd: number | null; by_agent: { agent: string; calls: number; tokens: number; cost_usd: number | null }[] };
     band: { configured: boolean; connected: boolean; agents: { role: string; handle: string }[]; human: string | null; messages_sent: number; messages_received: number; last_error: string | null };
+    /** The crew, in the order work is handed off. */
+    roles: AgentRole[];
+    /** The conversation between the agents and the board they work from. */
+    room: { messages: RoomMessage[]; cards: RoomCard[] };
   };
   world: { pages: WorldPageView[]; pending_batches: number };
 }

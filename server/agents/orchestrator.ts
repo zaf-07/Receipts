@@ -1,4 +1,4 @@
-import type { Lead, Message, PipelineRun, Profile, Receipt, Stage, TaskRun } from '../../shared/types';
+import type { AgentName, Lead, Message, PipelineRun, Profile, Receipt, Stage, TaskRun } from '../../shared/types';
 import { STAGES } from '../../shared/constants';
 import { advanceClock, now } from '../clock';
 import { config } from '../config';
@@ -49,6 +49,7 @@ import {
 } from '../services/store';
 import { applyAfterCrawl, releaseNextBatch, seedWorld } from '../world/world';
 import { clearBoard, onBandDecision, onBandNote, requestDecision, resolveDecision, say, track, type CardStep } from '../integrations/band';
+import { recordMessage } from '../services/room';
 import { runAnalyst } from './analyst';
 import { enrichLead } from './enricher';
 import { runPlanner } from './planner';
@@ -335,9 +336,10 @@ function planScan(message: Message, runId: string, after: string[]): void {
 
 /** A lead's outreach is one card on the Band room's task board. Each agent reports on it as the work reaches it. */
 function card(lead: Lead, steps: CardStep[]): void {
-  track(cardOf(lead), `Tier ${lead.tier}, score ${Math.round(lead.score)}. Find the contact, draft only from receipts, re-open every source, scan the draft, then a person decides.`, steps);
+  track(cardOf(lead), `Tier ${lead.tier}, score ${Math.round(lead.score)}. Find the contact, draft only from receipts, re-open every source, scan the draft, then a person decides.`, steps, lead.id);
 }
 const cardOf = (lead: Lead) => `Outreach to ${companyName(lead)}`;
+const cap = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
 /** Every active lead gets the next task it needs. Idempotent: planning twice creates nothing new. */
 function planLeadWork(runId: string): void {
@@ -467,7 +469,7 @@ function onSettled(task: TaskRun, outcome: Outcome | null): void {
       const lead = task.lead_id ? getLead(task.lead_id) : null;
       if (outcome?.status === 'done' && lead?.person_id && lead.state === 'active') {
         planWrite(lead, task.run_id, [task.id], true);
-        say('enricher', 'writer', `${companyName(lead)}: ${task.result} Contact receipts: ${task.output_receipt_ids.join(', ') || 'none'}. Yours to draft.`);
+        say('enricher', 'writer', `${companyName(lead)}: ${task.result} Contact receipts: ${task.output_receipt_ids.join(', ') || 'none'}. Yours to draft.`, { lead: lead.id });
         card(lead, [
           { from: 'enricher', status: 'completed', comment: task.result ?? 'Contact resolved.' },
           { from: 'writer', status: 'in_progress', doing: 'Drafting from receipts only' },
@@ -484,7 +486,7 @@ function onSettled(task: TaskRun, outcome: Outcome | null): void {
       }
       const lead = task.lead_id ? getLead(task.lead_id) : null;
       if (lead && task.output_message_ids.length) {
-        say('writer', 'skeptic', `${companyName(lead)}: ${task.result} The claims cite ${task.input_receipt_ids.join(', ')}. Re-open every source before a person sees this.`);
+        say('writer', 'skeptic', `${companyName(lead)}: ${task.result} The claims cite ${task.input_receipt_ids.join(', ')}. Re-open every source before a person sees this.`, { lead: lead.id });
         card(lead, [
           { from: 'writer', status: 'completed', comment: task.result ?? 'Drafted.' },
           { from: 'skeptic', status: 'in_progress', doing: 'Re-opening every source behind the draft' },
@@ -500,18 +502,18 @@ function onSettled(task: TaskRun, outcome: Outcome | null): void {
       const about = `${lead ? companyName(lead) : 'A lead'}, ${channelName(message)}`;
       if (message.status === 'pending_review') {
         planScan(message, task.run_id, [task.id]);
-        say('skeptic', 'security', `${about}: ${task.result} Yours to scan before it reaches a person.`);
+        say('skeptic', 'security', `${about}: ${task.result} Yours to scan before it reaches a person.`, { lead: message.lead_id, draft: message.id });
         if (lead) {
           card(lead, [
-            { from: 'skeptic', status: 'completed', comment: `${channelName(message)}: ${task.result}` },
+            { from: 'skeptic', status: 'completed', comment: `${cap(channelName(message))}: ${task.result}` },
             { from: 'security', status: 'in_progress', doing: 'Scanning the verified draft' },
           ]);
         }
       } else {
         syncGate(message, task.run_id);
-        say('skeptic', 'human', `${about}: ${task.result}`);
+        say('skeptic', 'human', `${about}: ${task.result}`, { lead: message.lead_id, draft: message.id });
         if (lead && !messagesForLead(lead.id).some((m) => m.status === 'pending_review')) {
-          card(lead, [{ from: 'skeptic', status: 'blocked', comment: `${channelName(message)}: ${task.result}` }]);
+          card(lead, [{ from: 'skeptic', status: 'blocked', comment: `${cap(channelName(message))}: ${task.result}` }]);
         }
       }
       break;
@@ -525,12 +527,12 @@ function onSettled(task: TaskRun, outcome: Outcome | null): void {
       const about = `${lead ? companyName(lead) : 'A lead'}: the ${channelName(message)} to ${person?.name ?? 'the contact'}`;
       if (message.status === 'pending_review') {
         const claims = message.sentences.filter((s) => s.kind === 'claim' && s.status === 'ok');
-        if (lead) card(lead, [{ from: 'security', status: 'in_review', doing: 'Waiting for a person to decide', comment: `${channelName(message)}: ${task.result}` }]);
-        requestDecision('security', message.id, `${about} is verified and cleared. ${claims.length} claim${claims.length === 1 ? ' rests' : 's rest'} on receipts ${[...new Set(claims.flatMap((s) => s.receipt_ids))].join(', ')}. ${task.result}`, lead ? cardOf(lead) : undefined);
+        if (lead) card(lead, [{ from: 'security', status: 'in_review', doing: 'Waiting for a person to decide', comment: `${cap(channelName(message))}: ${task.result}` }]);
+        requestDecision('security', message.id, `${about} is verified and cleared. ${claims.length} claim${claims.length === 1 ? ' rests' : 's rest'} on receipts ${[...new Set(claims.flatMap((s) => s.receipt_ids))].join(', ')}. ${task.result}`, lead ? cardOf(lead) : undefined, { lead: message.lead_id });
       } else {
-        say('security', 'human', `${about} did not pass. ${task.result}`);
+        say('security', 'human', `${about} did not pass. ${task.result}`, { lead: message.lead_id, draft: message.id });
         if (lead && !messagesForLead(lead.id).some((m) => m.status === 'pending_review')) {
-          card(lead, [{ from: 'security', status: 'blocked', comment: `${channelName(message)}: ${task.result}` }]);
+          card(lead, [{ from: 'security', status: 'blocked', comment: `${cap(channelName(message))}: ${task.result}` }]);
         }
       }
       break;
@@ -736,8 +738,9 @@ export function approve(messageId: string, reviewer: string): void {
   }
   deliver(messageId, gate.id, reviewer);
   resolveReview(gate.id, `Approved by ${reviewer}. Send logged.`, [messageId]);
-  resolveDecision(messageId, `${messageId} approved by ${reviewer}. The send to ${companyName(getLead(fresh.lead_id)!)} is logged and the card moved to Contacted.`);
-  decided(fresh.lead_id, `${channelName(fresh)} approved by ${reviewer}. Send logged.`);
+  recordMessage({ from: 'human', author: reviewer, to: 'security', kind: 'decision', text: `approve ${messageId}`, lead_id: fresh.lead_id, draft_id: messageId, in_band: decidingInBand });
+  resolveDecision(messageId, `${messageId} approved by ${reviewer}. The send to ${companyName(getLead(fresh.lead_id)!)} is logged and the card moved to Contacted.`, { lead: fresh.lead_id });
+  decided(fresh.lead_id, `${cap(channelName(fresh))} approved by ${reviewer}. Send logged.`);
   settleRuns();
   changed();
 }
@@ -755,10 +758,13 @@ export function reject(messageId: string, reviewer: string, note: string): void 
   if (!message) throw new UserError('Unknown draft.');
   if (message.status !== 'pending_review' && message.status !== 'blocked') throw new UserError('Only a draft waiting for review can be rejected.');
   const gate = tasksWhere("kind = 'approve' AND status = 'review'").find((t) => t.input.message_id === messageId);
+  // The reason is quoted inside a sentence, so it must not bring its own full stop.
+  const why = note ? `: ${note.replace(/[.s]+$/, '')}` : '';
   updateMessage(message.id, { status: 'rejected', reviewer, block_reason: note || 'Rejected by the reviewer.' });
   if (gate) resolveReview(gate.id, `Rejected by ${reviewer}${note ? `: ${note}` : ''}. Nothing was sent.`);
-  resolveDecision(messageId, `${messageId} rejected by ${reviewer}${note ? `: ${note}` : ''}. Nothing was sent.`);
-  decided(message.lead_id, `${channelName(message)} rejected by ${reviewer}${note ? `: ${note}` : ''}. Nothing was sent.`);
+  recordMessage({ from: 'human', author: reviewer, to: 'security', kind: 'decision', text: `reject ${messageId}${note ? ` ${note}` : ''}`, lead_id: message.lead_id, draft_id: messageId, in_band: decidingInBand });
+  resolveDecision(messageId, `${messageId} rejected by ${reviewer}${why}. Nothing was sent.`, { lead: message.lead_id });
+  decided(message.lead_id, `${cap(channelName(message))} rejected by ${reviewer}${why}. Nothing was sent.`);
   const lead = getLead(message.lead_id);
   log('human', 'info', `${reviewer} rejected the draft for ${lead ? companyName(lead) : 'a lead'}${note ? `: ${note}` : ''}. Nothing was sent.`, {
     lead_id: message.lead_id,
@@ -925,25 +931,40 @@ export function resetDemo(): void {
 // ---------- the Band room ----------
 
 const ROOM_NOTES = 'Instructions from the Band room';
+/** True while a decision that arrived from the Band room is being applied, so its line is marked as being in the room. */
+let decidingInBand = false;
 
 // A person decides in the room. Their reply goes through the same approve and reject as the
 // review queue, so the human gate and the delivery guard apply exactly as they do in the app.
 onBandDecision(({ action, messageId, reviewer, note }) => {
+  decidingInBand = true;
   try {
     if (action === 'approve') approve(messageId, reviewer);
     else reject(messageId, reviewer, note);
     return '';
   } catch (err) {
     return `Could not ${action} ${messageId}: ${err instanceof Error ? err.message : 'unknown error'}`;
+  } finally {
+    decidingInBand = false;
   }
 });
 
 // A person instructs an agent in the room. The instruction is kept as a note on that agent's
 // standing task and reaches the agent on its next model-backed run, bounded and marked as operator intent.
-onBandNote((role, text, author) => {
+onBandNote((role, text, author) => instruct(role, text, author, true));
+
+/**
+ * A person tells one agent how to work, from the Band room or from the Agent team screen. The
+ * instruction is kept on that agent's standing task, and both sides of the exchange go in the room.
+ */
+export function instruct(role: AgentName, text: string, author: string, inBand = false): string {
   const standing =
     tasksWhere("kind = 'manual' AND agent = ? AND title = ? AND status NOT IN ('done', 'failed')", role, ROOM_NOTES)[0] ??
-    createManualTask({ title: ROOM_NOTES, agent: role, detail: 'What people asked this agent for in the Band room.' });
+    createManualTask({ title: ROOM_NOTES, agent: role, detail: 'What people asked this agent for, in the Band room or on the Agent team screen.' });
   addTaskMessage(standing.id, { author, body: text });
-  return `Noted for the ${role}. It applies from the next run.`;
-});
+  recordMessage({ from: 'human', author, to: role, kind: 'note', text, in_band: inBand });
+  const answer = `Noted for the ${role}. It applies from the next run.`;
+  recordMessage({ from: role, to: 'human', kind: 'update', text: answer, in_band: inBand });
+  changed();
+  return answer;
+}

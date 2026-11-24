@@ -21,7 +21,8 @@ import { getSetting, setSetting } from '../db';
 import { isExpired, isLive, isTrigger } from '../domain/state';
 import { firstName, normalize } from '../domain/text';
 import { flexpriceEnabled, flexpriceStatus, meterEvent } from '../integrations/flexprice';
-import { bandEnabled, bandStatus } from '../integrations/band';
+import { AGENT_ROLES, bandEnabled, bandStatus } from '../integrations/band';
+import { listRoomCards, listRoomMessages } from './room';
 import { unsupportedFigures, warmIntro } from '../agents/writer';
 import { recentActivity } from './activity';
 import { balance, countOps, recentLedger } from './ledger';
@@ -182,7 +183,7 @@ export function buildSnapshot(running: string | null): Snapshot {
     runs: listRuns().filter((r) => tasks.some((t) => t.run_id === r.id)),
     task_messages: listTaskMessages(),
     draft_versions: listDraftVersions(),
-    team: { concurrency: config.concurrency, lease_seconds: Math.round(config.leaseMs / 1000), usage: usageSummary(), band: bandStatus() },
+    team: { concurrency: config.concurrency, lease_seconds: Math.round(config.leaseMs / 1000), usage: usageSummary(), band: bandStatus(), roles: [...AGENT_ROLES], room: { messages: listRoomMessages(), cards: listRoomCards() } },
     world: { pages: config.source === 'world' ? listWorldPages() : [], pending_batches: pendingBatches() },
   };
 }
