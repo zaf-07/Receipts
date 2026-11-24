@@ -1,0 +1,222 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { ActivityEntry } from '../../shared/types';
+import { UiContext, call, useSnapshot, type Ui } from './api';
+import { fmtDate, fmtTime } from './components';
+import { Intake } from './views/Intake';
+import { Accounts } from './views/Accounts';
+import { Review } from './views/Review';
+import { NotYet } from './views/NotYet';
+import { Pipeline } from './views/Pipeline';
+import { Dashboard } from './views/Dashboard';
+import { GraphView } from './views/GraphView';
+import { Competitors } from './views/Competitors';
+import { LeadDrawer } from './views/LeadDrawer';
+import { DemoPanel } from './views/DemoPanel';
+
+const VIEWS = ['intake', 'accounts', 'review', 'not-yet', 'pipeline', 'dashboard', 'graph', 'competitors'] as const;
+type View = (typeof VIEWS)[number];
+
+const LABEL: Record<View, string> = {
+  intake: 'Intake & ICP',
+  accounts: 'Accounts',
+  review: 'Review queue',
+  'not-yet': 'Not yet',
+  pipeline: 'Pipeline',
+  dashboard: 'Dashboard',
+  graph: 'Graph',
+  competitors: 'Competitors',
+};
+
+const AGENT_LABEL: Record<string, string> = {
+  planner: 'Planner',
+  researcher: 'Researcher',
+  enricher: 'Enricher',
+  writer: 'Writer',
+  skeptic: 'Skeptic',
+  analyst: 'Analyst',
+  human: 'Human',
+  ledger: 'Ledger',
+  system: 'System',
+  world: 'World',
+};
+
+function initialView(): View {
+  const hash = window.location.hash.replace('#', '') as View;
+  return VIEWS.includes(hash) ? hash : 'intake';
+}
+
+function Feed({ entries, onLead }: { entries: ActivityEntry[]; onLead: (id: string) => void }) {
+  if (entries.length === 0) return <p className="feed-empty">Nothing yet. Agent handoffs will appear here as they happen.</p>;
+  return (
+    <ol className="feed">
+      {entries.map((e) => (
+        <li key={e.id} className={`feed-item kind-${e.kind}`}>
+          <div className="feed-top">
+            <span className={`agent agent-${e.agent}`}>{AGENT_LABEL[e.agent] ?? e.agent}</span>
+            <time>{fmtTime(e.at)}</time>
+          </div>
+          <p>
+            {e.message}
+            {e.lead_id && (
+              <button type="button" className="link" onClick={() => onLead(e.lead_id!)}>
+                open
+              </button>
+            )}
+          </p>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+export function App() {
+  const { snap, offline } = useSnapshot();
+  const [view, setView] = useState<View>(initialView);
+  const [leadId, setLeadId] = useState<string | null>(null);
+  const [feedOpen, setFeedOpen] = useState(true);
+  const [demoOpen, setDemoOpen] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const go = useCallback((v: string) => {
+    if (!VIEWS.includes(v as View)) return;
+    setView(v as View);
+    window.location.hash = v;
+  }, []);
+
+  useEffect(() => {
+    if (!notice) return;
+    const t = window.setTimeout(() => setNotice(null), 7000);
+    return () => window.clearTimeout(t);
+  }, [notice]);
+
+  const act = useCallback(async (path: string, body: unknown = {}) => {
+    try {
+      await call(path, body);
+      return true;
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'That did not work.');
+      return false;
+    }
+  }, []);
+
+  const ui = useMemo<Ui | null>(
+    () => (snap ? { snap, act, openLead: setLeadId, go, reviewer: snap.profile?.sender || 'Reviewer' } : null),
+    [snap, act, go],
+  );
+
+  if (!snap || !ui) {
+    return (
+      <div className="boot">
+        <h1>Receipts</h1>
+        <p>{offline ? 'Cannot reach the server. Start it with npm start, then reload.' : 'Loading.'}</p>
+      </div>
+    );
+  }
+
+  const counts: Partial<Record<View, number>> = {
+    accounts: snap.leads.length,
+    review: snap.leads.filter((l) => l.message?.status === 'pending_review').length,
+    'not-yet': snap.leads.filter((l) => l.state !== 'active').length,
+    competitors: snap.competitors.length,
+  };
+  const lead = leadId ? snap.leads.find((l) => l.id === leadId) : null;
+
+  return (
+    <UiContext.Provider value={ui}>
+      <div className={`app ${feedOpen ? 'with-feed' : ''}`}>
+        <header className="top">
+          <div className="brand">
+            <span className="brand-mark" aria-hidden="true" />
+            <div>
+              <strong>Receipts</strong>
+              <span>No receipt, no action.</span>
+            </div>
+          </div>
+          <div className="top-status">
+            {snap.running ? (
+              <span className="running">
+                <i /> {snap.running}
+              </span>
+            ) : (
+              <span className="idle">Idle</span>
+            )}
+            <span className="mode" title={snap.mode.llm ? `Agents use ${snap.mode.model}, with deterministic fallbacks` : 'No model credentials found. Agents run on deterministic rules.'}>
+              {snap.mode.source === 'world' ? 'Seeded world' : 'Live web'} · {snap.mode.llm ? 'model agents' : 'rule agents'}
+            </span>
+            <span className="clock" title="The app clock. Move it from the demo controls to watch receipts expire.">
+              {fmtDate(snap.now)}
+              {snap.clock_offset_days > 0 && <em> +{snap.clock_offset_days}d</em>}
+            </span>
+          </div>
+          <div className="top-actions">
+            <div className={`credits ${snap.credits.gated ? 'gated' : ''}`}>
+              <span className="credits-n">{snap.credits.balance}</span>
+              <span className="credits-l">{snap.credits.balance === 1 ? 'credit' : 'credits'}</span>
+              {snap.credits.gated && <span className="gate-note">Gate closed. Work is on hold.</span>}
+              <button type="button" className="btn small" onClick={() => void act('/credits/topup', { amount: 50 })}>
+                Top up 50
+              </button>
+            </div>
+            <button type="button" className={`btn small ${demoOpen ? 'on' : ''}`} onClick={() => setDemoOpen((v) => !v)}>
+              Demo controls
+            </button>
+            <button type="button" className={`btn small ${feedOpen ? 'on' : ''}`} onClick={() => setFeedOpen((v) => !v)}>
+              Activity
+            </button>
+          </div>
+        </header>
+
+        <nav className="nav" aria-label="Sections">
+          {VIEWS.map((v) => (
+            <button key={v} type="button" className={v === view ? 'active' : ''} onClick={() => go(v)}>
+              <span>{LABEL[v]}</span>
+              {counts[v] != null && counts[v]! > 0 && <b className={v === 'review' ? 'hot' : ''}>{counts[v]}</b>}
+            </button>
+          ))}
+          <p className="nav-foot">
+            Catch rate
+            <strong>{snap.metrics.catch_rate == null ? 'n/a' : `${Math.round(snap.metrics.catch_rate * 100)}%`}</strong>
+            <span>
+              {snap.metrics.claims_struck} of {snap.metrics.claims_drafted} drafted claims struck before a human saw them
+            </span>
+          </p>
+        </nav>
+
+        <main className="main">
+          {notice && (
+            <div className="notice" role="alert">
+              {notice}
+              <button type="button" className="link" onClick={() => setNotice(null)}>
+                dismiss
+              </button>
+            </div>
+          )}
+          {offline && <div className="notice">Lost the connection to the server. Retrying.</div>}
+          {demoOpen && <DemoPanel onClose={() => setDemoOpen(false)} />}
+          {view === 'intake' && <Intake />}
+          {view === 'accounts' && <Accounts />}
+          {view === 'review' && <Review />}
+          {view === 'not-yet' && <NotYet />}
+          {view === 'pipeline' && <Pipeline />}
+          {view === 'dashboard' && <Dashboard />}
+          {view === 'graph' && <GraphView />}
+          {view === 'competitors' && <Competitors />}
+        </main>
+
+        {feedOpen && (
+          <aside className="feed-rail" aria-label="Agent activity">
+            <header>
+              <h3>Agent activity</h3>
+              <button type="button" className="link" onClick={() => setFeedOpen(false)}>
+                hide
+              </button>
+            </header>
+            <Feed entries={snap.activity} onLead={setLeadId} />
+          </aside>
+        )}
+
+        {lead && <LeadDrawer lead={lead} onClose={() => setLeadId(null)} />}
+      </div>
+    </UiContext.Provider>
+  );
+}
