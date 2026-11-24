@@ -28,6 +28,12 @@ Other commands:
 | `npm test` | Unit tests for the rules, plus one end-to-end run of the whole pipeline over HTTP |
 | `npm run typecheck` | Typecheck the server and the web client |
 
+## Documents
+
+- [System design and architecture](docs/ARCHITECTURE.md): data model, reasoning loops, graph ontology and queries, the agent team, integrated services.
+- [Receipts in a Band room](docs/BAND.md): the crew, who talks to whom, one flow end to end, setup.
+- [Demo video script](docs/DEMO_SCRIPT.md): a 2 to 3 minute walkthrough, beat by beat.
+
 ## The idea in one object
 
 A **receipt** is a claim with a source, a sign and an expiry date.
@@ -53,7 +59,7 @@ Five behaviours follow from that one object, and each is a thing you can click:
 
 ## How it works
 
-Seven roles hand work to each other. The human is one of them.
+Eight roles hand work to each other. The human is one of them.
 
 | Role | Job | Stops when |
 | --- | --- | --- |
@@ -62,6 +68,7 @@ Seven roles hand work to each other. The human is one of them.
 | Enricher | Resolves the contact and email | Contact resolved, or marked low confidence |
 | Writer | Drafts email A and LinkedIn B outreach; every factual sentence carries receipt ids | No uncited factual sentence remains |
 | Skeptic | Re-opens each source and tries to disprove each claim | Every claim is verified or struck |
+| Security | Scans the verified draft for unverified links, leaked internal data and a wrong recipient | The draft is cleared, or blocked with the finding named |
 | Human | Approves, edits or rejects | Nothing sends without this click |
 | Analyst | Reads outcomes, reweights signal types, saves the next ICP version | A diff is ready for review |
 
@@ -83,7 +90,7 @@ Scoring, in [server/domain/scoring.ts](server/domain/scoring.ts): 0 to 100, half
 
 ## The agent team
 
-The seven roles run as a team with one lead. The **orchestrator** plans, assigns and reconciles, and does no agent work itself. The roles do scoped work in parallel and return an outcome. A worker cannot create a task, close a review or send anything: only the orchestrator decides what happens next.
+The eight roles run as a team with one lead. The **orchestrator** plans, assigns and reconciles, and does no agent work itself. The roles do scoped work in parallel and return an outcome. A worker cannot create a task, close a review or send anything: only the orchestrator decides what happens next.
 
 ```
 Planner      one ICP run
@@ -91,7 +98,8 @@ Researcher   one search task, then one read task per account, in parallel
 Enricher     one task per active lead, in parallel
 Writer       one task per enriched lead, in parallel
 Skeptic      one task per draft, in parallel
-Human gate   one review task per verified draft
+Security     one scan per verified draft
+Human gate   one review task per cleared draft
 Analyst      one task per outcome
 ```
 
@@ -164,15 +172,24 @@ Copy [.env.example](.env.example) to `.env`. Everything is optional.
 | `MOSS_PROJECT_ID`, `MOSS_PROJECT_KEY` | Enables `GET /api/search?q=...`, hybrid semantic search over existing receipts. Moss ranks evidence; SQLite remains the source of truth. |
 | `RECEIPTS_SOURCE=live` | Search and read the public web instead of the seeded world. Needs the key above. |
 | `FLEXPRICE_API_KEY`, `FLEXPRICE_CUSTOMER_ID` | Mirror metered events (enrich, draft, send) to Flexprice. |
-| `BAND_API_KEY`, `BAND_CHAT_ID` | Send handoff and block events to a Band room as the Receipts Orchestrator remote agent. |
+| `BAND_API_KEY`, `BAND_CHAT_ID` | Join a Band room as the Receipts Orchestrator agent. |
+| `BAND_KEY_PLANNER` ... `BAND_KEY_ANALYST` | Optional: one Band agent key per role (`PLANNER`, `RESEARCHER`, `ENRICHER`, `WRITER`, `SKEPTIC`, `SECURITY`, `ANALYST`), so each role speaks and is mentioned as itself. |
+| `BAND_HUMAN_HANDLE` | The person in the room who decides. Defaults to the room owner. |
 | `BAND_API_BASE_URL` | Band API base URL; defaults to `https://app.band.ai/api/v1`. |
 | `AGENT_EVENTS_WEBHOOK_URL` | Additionally POST every agent handoff as JSON to a generic external orchestrator. |
 
-## Band Desktop
+## Band
 
-Receipts is ready to join a Band room without making Band a dependency of the product flow. Create a **Remote Agent** named `Receipts Orchestrator` in Band, add it to the hackathon room, and put its one-time API key and the room ID in `.env` as `BAND_API_KEY` and `BAND_CHAT_ID`. `GET /api/band/status` confirms the connection is configured without exposing credentials.
+The agent team runs in a Band room. The room is where one agent hands work to the next, and where a named person makes the call that releases a send.
 
-On every handoff or block, Receipts writes a first-class Band room event with the originating role (`planner`, `researcher`, `enricher`, `writer`, `skeptic`, `human`, or `analyst`), the lead/reference where available, and an event time. Band remains the shared observability and human-collaboration surface; the product pipeline stays resilient if Band is offline. This is intentional: Band text messages route work only with concrete participant @mentions, while Receipts itself executes the pipeline.
+- **Each role can be its own Band agent.** A handoff is a message that mentions the next agent, as Band requires for routing: Enricher to Writer, Writer to Skeptic, Skeptic to Security.
+- **The decision happens in the room.** A verified, security-cleared draft is put to the room owner with a blocking review. Their reply, `approve m_ab12cd` or `reject m_ab12cd <reason>`, is what releases or stops the send.
+- **Only a person can decide.** A reply is acted on only when Band says a user sent it, and it runs the same approval as the review queue.
+- **People can steer.** Mention an agent with an instruction and it is kept as a note for that agent.
+
+Set `BAND_API_KEY` and `BAND_CHAT_ID`, and optionally one `BAND_KEY_<ROLE>` per role. Band stays optional: without it, or if it is unreachable, the pipeline runs the same and decisions are taken in the review queue.
+
+The crew, a full flow, setup steps and what has been tested are in [docs/BAND.md](docs/BAND.md).
 
 ## What is real and what is simulated
 
@@ -198,7 +215,7 @@ Written but not yet exercised against the real service:
 
 - **Model-backed agents and live web mode.** The code paths typecheck and fall back cleanly, but have not been run with a key.
 - **Flexprice.** Events are posted to `POST /v1/events`; the local ledger remains the source of truth for the gate.
-- **Band.** A configured Band Agent API integration writes each handoff and block to the selected Band room; role metadata preserves the seven-agent story. `GET /api/band/status` shows whether it is configured.
+- **Band.** Built to Band's documented Agent API and tested against a stand-in for it: mention handoffs, the blocking review, and a person approving in the room. It has not yet been run in a real Band room.
 
 ## Layout
 

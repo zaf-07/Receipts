@@ -2,6 +2,7 @@ import type {
   CompetitorView,
   ContrastSentence,
   Graph,
+  GraphAnswer,
   GraphEdge,
   GraphNode,
   LeadView,
@@ -19,7 +20,7 @@ import { config, llmEnabled } from '../config';
 import { getSetting, setSetting } from '../db';
 import { isExpired, isLive, isTrigger } from '../domain/state';
 import { firstName, normalize } from '../domain/text';
-import { flexpriceEnabled } from '../integrations/flexprice';
+import { flexpriceEnabled, meterEvent } from '../integrations/flexprice';
 import { bandEnabled, bandStatus } from '../integrations/band';
 import { unsupportedFigures, warmIntro } from '../agents/writer';
 import { recentActivity } from './activity';
@@ -188,8 +189,10 @@ export function buildSnapshot(running: string | null): Snapshot {
 
 // ---------- knowledge graph: a projection of the receipts, not a second database ----------
 
-function countGraphQuery(): void {
+/** Every graph traversal is counted, and metered to Flexprice when it is connected. */
+function countGraphQuery(name = 'graph'): void {
   setSetting('graph_queries', getSetting<number>('graph_queries', 0) + 1);
+  meterEvent('receipts.graph_query', 0, name);
 }
 
 export function buildGraph(): Graph {
@@ -332,4 +335,101 @@ export function contrastEmail(leadId: string): ContrastSentence[] {
       verdict: loose.length ? `No source. No receipt for this lead contains ${loose.join(' or ')}.` : 'No source. No receipt for this lead says this.',
     };
   });
+}
+
+// ---------- multi-hop questions ----------
+//
+// Each of these walks more than one edge, which is what a flat table of leads cannot answer
+// in one step. Every row keeps the receipts that justify its edges.
+
+export const GRAPH_QUESTIONS: { name: string; question: string; pattern: string }[] = [
+  { name: 'warm_intros', question: 'Who can we reach through a company that already buys from us?', pattern: '(Person)-[previously_employed_at]->(Customer)-[customer_of]->(Product)' },
+  { name: 'hiring_to_evaluation', question: 'Which open roles point at a buyer we can already name?', pattern: '(Signal: job posting)-[has_signal]->(Company)<-[works_at]-(Person)-[matched_to]->(Product)' },
+  { name: 'displacement', question: 'Which accounts are locked in with a competitor, and when does that stop counting?', pattern: '(Company)-[has_signal: signed]->(Competitor)-[competes_with]->(Product)' },
+  { name: 'lookalikes', question: 'Which untouched accounts show the same signal that earned a reply?', pattern: '(Company)-[replied_to]->(Product), (Company)-[has_signal]->(Signal type)<-[has_signal]-(Other company)' },
+];
+
+export function graphQuery(name: string): GraphAnswer | null {
+  const spec = GRAPH_QUESTIONS.find((q) => q.name === name);
+  if (!spec) return null;
+  countGraphQuery(name);
+  const at = now();
+  const profile = getProfile();
+  const product = profile?.product_name ?? 'our product';
+  const leads = buildLeads();
+  const rows: GraphAnswer['rows'] = [];
+  const days = (iso: string) => Math.max(0, Math.round((new Date(iso).getTime() - at.getTime()) / 86_400_000));
+
+  if (name === 'warm_intros') {
+    const customers = new Set((profile?.customers ?? []).map((c) => normalize(c)));
+    for (const lead of leads) {
+      if (!lead.person) continue;
+      for (const r of lead.receipts.filter((x) => x.field === 'previous_company' && customers.has(normalize(x.data.company ?? '')))) {
+        rows.push({
+          path: [`${lead.person.name} (${lead.company.name})`, r.data.company, product],
+          note: `${firstName(lead.person.name)} used to work at ${r.data.company}, which already runs on ${product}.`,
+          receipt_ids: [r.id],
+          lead_id: lead.id,
+        });
+      }
+    }
+  }
+
+  if (name === 'hiring_to_evaluation') {
+    for (const lead of leads) {
+      const jobs = lead.receipts.filter((r) => r.field === 'signal' && r.signal_type === 'job_posting' && r.live);
+      if (jobs.length === 0) continue;
+      const contact = lead.person ? lead.receipts.find((r) => r.entity_id === lead.person!.id && r.field === 'contact') : undefined;
+      for (const job of jobs) {
+        rows.push({
+          path: [job.data.role ?? 'Open role', lead.company.name, lead.person ? `${lead.person.name}, ${lead.person.title}` : 'no contact resolved yet', product],
+          note: lead.person
+            ? `The posting is ${days(job.expires_at ?? at.toISOString())} days from expiring, and the buyer is named. Stage: ${lead.stage}.`
+            : `The role is open, but nobody is resolved to send to${lead.state === 'active' ? '' : ` (lead is ${lead.state.replace('_', ' ')})`}.`,
+          receipt_ids: [job.id, ...(contact ? [contact.id] : [])],
+          lead_id: lead.id,
+        });
+      }
+    }
+  }
+
+  if (name === 'displacement') {
+    for (const lead of leads) {
+      for (const r of lead.receipts.filter((x) => x.signal_type === 'competitor_signed')) {
+        const left = r.expires_at ? days(r.expires_at) : null;
+        rows.push({
+          path: [lead.company.name, r.data.competitor ?? 'a competitor', product],
+          note: r.live
+            ? `Signed with ${r.data.competitor ?? 'a competitor'}. Suppressed for ${left} more days, then reconsidered${left !== null && left <= 120 ? ': the window is closing, so this is a displacement lead to prepare' : ''}.`
+            : `The signing no longer counts (${r.status === 'failed' ? 'the source could not be confirmed' : 'it expired'}). Open for a displacement approach.`,
+          receipt_ids: [r.id],
+          lead_id: lead.id,
+        });
+      }
+    }
+    rows.sort((a, b) => a.note.length - b.note.length);
+  }
+
+  if (name === 'lookalikes') {
+    const replied = leads.filter((l) => l.transitions.some((t) => t.to_stage === 'Replied'));
+    for (const winner of replied) {
+      const sent = winner.messages.find((m) => m.status === 'sent');
+      if (!sent) continue;
+      const cited = new Set(sent.sentences.filter((x) => x.kind === 'claim' && x.status === 'ok').flatMap((x) => x.receipt_ids));
+      const types = new Set(winner.receipts.filter((r) => cited.has(r.id) && r.field === 'signal').map((r) => r.signal_type));
+      for (const other of leads) {
+        if (other.id === winner.id || other.stage !== 'Matched') continue;
+        for (const r of other.receipts.filter((x) => x.field === 'signal' && x.sign === 'positive' && x.live && types.has(x.signal_type))) {
+          rows.push({
+            path: [`${winner.company.name} (replied)`, SIGNALS[r.signal_type].label, other.company.name],
+            note: `${other.company.name} shows the same kind of signal that earned ${winner.company.name}'s reply. State: ${other.state.replace('_', ' ')}, score ${other.score}.`,
+            receipt_ids: [r.id],
+            lead_id: other.id,
+          });
+        }
+      }
+    }
+  }
+
+  return { ...spec, rows };
 }

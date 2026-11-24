@@ -125,7 +125,7 @@ export async function reviewDraft(messageId: string): Promise<Message | null> {
     log(
       'skeptic',
       'handoff',
-      `${company.name}: ${verified} claim${verified === 1 ? '' : 's'} verified against the live page${struck ? `, ${struck} struck` : ''}. Waiting for a human.`,
+      `${company.name}: ${verified} claim${verified === 1 ? '' : 's'} verified against the live page${struck ? `, ${struck} struck` : ''}. Handing to the Security agent.`,
       { lead_id: lead.id, ref: message.id },
     );
   }

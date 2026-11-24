@@ -3,6 +3,7 @@ import type { Graph, GraphEdge, GraphNode } from '../../../shared/types';
 import { call, useUi } from '../api';
 import { Empty } from '../components';
 import { LeadJourney } from './LeadJourney';
+import { GraphQuestions } from './GraphQuestions';
 
 const COL = { Signal: 130, Company: 380, Person: 630, Right: 880 };
 const ROW = 30;
@@ -25,7 +26,7 @@ interface Placed extends GraphNode {
 }
 
 export function GraphView() {
-  const [tab, setTab] = useState<'journey' | 'all'>('journey');
+  const [tab, setTab] = useState<'journey' | 'all' | 'questions'>('journey');
   return (
     <div className="page">
       <header className="page-head">
@@ -39,9 +40,12 @@ export function GraphView() {
           <button type="button" role="tab" aria-selected={tab === 'all'} className={tab === 'all' ? 'active' : ''} onClick={() => setTab('all')}>
             All accounts
           </button>
+          <button type="button" role="tab" aria-selected={tab === 'questions'} className={tab === 'questions' ? 'active' : ''} onClick={() => setTab('questions')}>
+            Multi-hop questions
+          </button>
         </div>
       </header>
-      {tab === 'journey' ? <LeadJourney /> : <AccountsGraph />}
+      {tab === 'journey' ? <LeadJourney /> : tab === 'all' ? <AccountsGraph /> : <GraphQuestions />}
     </div>
   );
 }

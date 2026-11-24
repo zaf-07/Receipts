@@ -447,6 +447,15 @@ export interface Graph {
   edges: GraphEdge[];
 }
 
+/** One multi-hop question the graph can answer, and the paths that answer it. */
+export interface GraphAnswer {
+  name: string;
+  question: string;
+  /** The traversal, written as a path pattern. */
+  pattern: string;
+  rows: { path: string[]; note: string; receipt_ids: string[]; lead_id: string | null }[];
+}
+
 export interface WhyStep {
   question: 'Why now' | 'Why this company' | 'Why this person' | 'Why us' | 'Warm intro';
   node: GraphNode;

@@ -1,6 +1,6 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { Graph, Snapshot, WhyStep } from '../shared/types';
+import type { Graph, GraphAnswer, Snapshot, WhyStep } from '../shared/types';
 
 // One end-to-end run over the seeded world, through the real HTTP API, with the deterministic agents.
 // It walks the demo script: discovery, the Skeptic's catches, restraint, approval, the credit gate, learning.
@@ -279,6 +279,34 @@ test('an inbound reply advances a sent message and detects booking intent', asyn
   assert.equal(lead(snap, 'Vectorly').stage_actor, 'agent');
   assert.ok(lead(snap, 'Vectorly').transitions.some((t) => t.to_stage === 'Replied' && t.actor === 'Inbound webhook'));
   assert.ok(lead(snap, 'Vectorly').transitions.some((t) => t.to_stage === 'Meeting Booked' && t.actor === 'Inbound webhook'));
+});
+
+test('the graph answers multi-hop questions, each row with its receipts, and each query is counted', async () => {
+  const before = (await settled()).metrics.usage.graph_queries;
+  const ask = (name: string) => api<GraphAnswer>(`/graph/query/${name}`);
+  const paths = (a: GraphAnswer) => a.rows.map((r) => r.path.join(' > '));
+
+  const warm = await ask('warm_intros');
+  assert.ok(paths(warm).some((p) => /Priya Raman \(Northbeam AI\) > Lumen Cloud > Tollgate/.test(p)));
+
+  const hiring = await ask('hiring_to_evaluation');
+  assert.ok(paths(hiring).some((p) => /Senior Billing Engineer > Northbeam AI > Priya Raman, VP Engineering > Tollgate/.test(p)));
+
+  const locked = await ask('displacement');
+  assert.ok(paths(locked).some((p) => p === 'Mosaic Commerce > Chargeline > Tollgate'));
+  assert.match(locked.rows.find((r) => r.path[0] === 'Mosaic Commerce')!.note, /Suppressed for \d+ more days/);
+
+  // Quillstack replied to an email that cited a pricing change, so other accounts with that signal surface.
+  const alike = await ask('lookalikes');
+  assert.ok(alike.rows.length > 0);
+  assert.ok(alike.rows.some((r) => r.path[0] === 'Quillstack (replied)' && r.path[1] === 'Tech or pricing change'));
+  assert.ok(alike.rows.every((r) => r.path[0].endsWith('(replied)')), 'every lookalike starts from an account that replied');
+
+  for (const answer of [warm, hiring, locked, alike]) {
+    assert.ok(answer.rows.every((r) => r.receipt_ids.length > 0), `every ${answer.name} row cites a receipt`);
+  }
+  assert.equal((await settled()).metrics.usage.graph_queries, before + 4);
+  await assert.rejects(api('/graph/query/nonsense'), /Unknown graph question/);
 });
 
 test('receipts expire on their own and the lead goes back to not yet', async () => {

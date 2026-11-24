@@ -10,7 +10,7 @@ import { config } from './config';
 import { initDb } from './db';
 import { changed, log, subscribe } from './services/activity';
 import { balance, credit } from './services/ledger';
-import { buildGraph, buildSnapshot, contrastEmail, whyNow } from './services/snapshot';
+import { GRAPH_QUESTIONS, buildGraph, buildSnapshot, contrastEmail, graphQuery, whyNow } from './services/snapshot';
 import { searchPipeline } from './services/moss';
 import { latestMessage } from './services/store';
 import {
@@ -165,6 +165,13 @@ export function createApp() {
   });
 
   api.get('/graph', (_req, res) => res.json(buildGraph()));
+  api.get('/graph/questions', (_req, res) => res.json(GRAPH_QUESTIONS));
+  api.get('/graph/query/:name', (req, res) => {
+    const answer = graphQuery(req.params.name);
+    if (!answer) throw new UserError('Unknown graph question.');
+    changed();
+    res.json(answer);
+  });
   api.get('/search', async (req, res) => {
     const query = text(req.query.q, 500);
     if (query.length < 3) throw new UserError('Use at least three characters to search the pipeline.');
