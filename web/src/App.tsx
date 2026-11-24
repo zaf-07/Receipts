@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ActivityEntry } from '../../shared/types';
 import { UiContext, call, useSnapshot, useUi, type Ui } from './api';
 import { Chip, fmtDate, fmtTime } from './components';
@@ -12,6 +12,7 @@ import { GraphView } from './views/GraphView';
 import { Competitors } from './views/Competitors';
 import { LeadDrawer } from './views/LeadDrawer';
 import { DemoPanel } from './views/DemoPanel';
+import { Tour } from './views/Tour';
 import { KIND_LABEL, Team, receiptIndex } from './views/Team';
 
 const VIEWS = ['intake', 'accounts', 'review', 'not-yet', 'pipeline', 'team', 'dashboard', 'graph', 'competitors'] as const;
@@ -107,6 +108,10 @@ export function App() {
   const [demoOpen, setDemoOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [taskId, setTaskId] = useState<string | null>(null);
+  const [tour, setTour] = useState(() => new URLSearchParams(window.location.search).has('tour'));
+  // The tour reads the newest snapshot while it runs, without restarting on every refresh.
+  const snapRef = useRef(snap);
+  snapRef.current = snap;
 
   const go = useCallback((v: string) => {
     if (!VIEWS.includes(v as View)) return;
@@ -144,6 +149,10 @@ export function App() {
             taskId,
             go,
             reviewer: snap.profile?.sender || 'Reviewer',
+            startTour: () => {
+              setDemoOpen(false);
+              setTour(true);
+            },
           }
         : null,
     [snap, act, go, taskId],
@@ -267,6 +276,12 @@ export function App() {
         </aside>
 
         {lead && <LeadDrawer lead={lead} onClose={() => setLeadId(null)} />}
+        {tour && (
+          <Tour
+            onDone={() => setTour(false)}
+            controls={{ go, act, openLead: setLeadId, setFeed: setFeedOpen, snap: () => snapRef.current! }}
+          />
+        )}
       </div>
     </UiContext.Provider>
   );

@@ -4,7 +4,7 @@ import { fmtDate } from '../components';
 
 /** Controls for the seeded world and the clock. They change the outside world, never the pipeline's own records. */
 export function DemoPanel({ onClose }: { onClose: () => void }) {
-  const { snap, act } = useUi();
+  const { snap, act, startTour } = useUi();
   const [confirm, setConfirm] = useState(false);
   const pages = snap.world.pages.filter((p) => p.kind === 'job' || p.kind === 'news' || p.kind === 'pricing');
   const companies = [...new Set(pages.map((p) => p.company))];
@@ -70,6 +70,15 @@ export function DemoPanel({ onClose }: { onClose: () => void }) {
               Reset the demo
             </button>
           )}
+
+          <h4>Guided demo</h4>
+          <p className="muted small">
+            Plays the whole demo script by itself, with the narration on screen: about two and a half minutes. Start your screen recorder, then press play. It
+            resets the data first{snap.mode.llm ? ', and it spends a small amount of model credit' : ''}.
+          </p>
+          <button type="button" className="btn small primary" disabled={Boolean(snap.running)} onClick={startTour}>
+            Play the guided demo
+          </button>
         </div>
 
         <div>

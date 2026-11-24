@@ -3166,6 +3166,61 @@ kbd {
   }
 }
 
+/* ---------- the guided demo: narration on screen ---------- */
+
+.tour-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  width: min(940px, calc(100vw - 32px));
+  z-index: 90;
+  background: rgba(23, 22, 15, 0.95);
+  color: var(--paper);
+  border-radius: 12px;
+  padding: 12px 20px 9px;
+  box-shadow: 0 14px 40px rgba(23, 22, 15, 0.45);
+}
+
+.tour-bar p {
+  font: 600 19px/1.35 var(--serif);
+  text-wrap: balance;
+}
+
+.tour-foot {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 10px;
+  font: 11px var(--mono);
+  color: #a8a393;
+}
+
+.tour-dots {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+
+.tour-dots i {
+  height: 3px;
+  flex: 1;
+  border-radius: 2px;
+  background: #45433a;
+}
+
+.tour-dots i.done {
+  background: #a8a393;
+}
+
+.tour-dots i.now {
+  background: var(--paper);
+}
+
+.tour-foot .link {
+  color: #c9c4b4;
+}
+
 /* ---------- competitors ---------- */
 
 .cards {

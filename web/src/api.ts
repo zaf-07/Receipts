@@ -64,6 +64,8 @@ export interface Ui {
   /** Show a task run on the team screen. */
   openTask: (id: string) => void;
   taskId: string | null;
+  /** Start the guided demo, which resets the data and plays the whole script. */
+  startTour: () => void;
   go: (view: string) => void;
   reviewer: string;
 }
