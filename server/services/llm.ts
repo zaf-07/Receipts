@@ -84,6 +84,8 @@ export async function structured<S extends z.ZodType>(
   }
 }
 
+const SECOND_HAND = ['wikipedia.org', 'g2.com', 'capterra.com', 'reddit.com', 'quora.com', 'youtube.com', 'linkedin.com', 'crunchbase.com', 'glassdoor.com', 'medium.com'];
+
 export interface WebResult {
   url: string;
   title: string;
@@ -101,11 +103,14 @@ export async function webSearch(query: string, maxResults = 6): Promise<WebResul
       model: config.model,
       max_tokens: 4000,
       output_config: { effort: 'low' },
-      tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: 2 }],
+      // Reference sites, review aggregators and social networks describe companies but are not where
+      // a company announces a hire, a round or a pricing change. They are also the ones that block reads.
+      tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: 2, blocked_domains: SECOND_HAND }],
       messages: [
         {
           role: 'user',
-          content: `Search the web for: ${query}\nPrefer primary sources: company newsrooms, careers pages and press releases from the last few months. Reply with one short line.`,
+          content: `Today is ${new Date().toISOString().slice(0, 10)}. Search the web for: ${query}
+Find pages published in the last three months where one specific company announces something itself: a job posting on its careers page or a job board, a funding announcement, a new executive, a pricing or product change, layoffs. Skip roundups, listicles, vendor comparison posts and encyclopedia entries. Reply with one short line.`,
         },
       ],
     });

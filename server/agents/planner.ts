@@ -168,7 +168,8 @@ async function llmPlan(profile: Profile): Promise<Plan | null> {
 Every value carries a confidence from 0 to 1 that reflects how strongly the input supports it. Be honest: low confidence is useful.
 Propose exactly two adjacent segments outside the core ICP that could plausibly buy, each with its reasoning.
 Trigger events are public signals that a company needs this product now.
-Do not include excluded regions.`,
+Do not include excluded regions.
+Search queries must surface pages from the last three months in which one company announces something itself: an open role, a funding round, a new executive, a pricing change. Today is ${new Date().toISOString().slice(0, 10)}. Do not put a year in a query unless it is the current year, and do not write queries that return roundups or comparison articles.`,
     `Product: ${profile.product_name}
 Description: ${profile.description}
 Existing customers: ${profile.customers.join(', ') || 'none given'}

@@ -25,6 +25,9 @@ export const config = {
   concurrency: Math.max(1, Number(env.RECEIPTS_CONCURRENCY ?? 4)),
   /** How long a worker may hold a task without a heartbeat before the task is taken back and retried. */
   leaseMs: Math.max(1000, Number(env.RECEIPTS_LEASE_MS ?? 30_000)),
+  /** Live web mode: how many searches to run and how many result pages to read per pass. Each costs model calls. */
+  liveMaxSearches: Math.max(1, Number(env.RECEIPTS_LIVE_MAX_SEARCHES ?? 6)),
+  liveMaxPages: Math.max(1, Number(env.RECEIPTS_LIVE_MAX_PAGES ?? 12)),
   flexprice: {
     apiKey: env.FLEXPRICE_API_KEY ?? '',
     baseUrl: env.FLEXPRICE_BASE_URL ?? 'https://api.cloud.flexprice.io',

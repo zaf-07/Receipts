@@ -178,6 +178,11 @@ export function findCompany(siteUrl: string, domain: string): Company | null {
   return get<Company>('SELECT * FROM companies WHERE site_url = ? OR domain = ?', siteUrl, domain) ?? null;
 }
 
+/** For accounts found on a third-party page, where the company's own domain is not known yet. */
+export function findCompanyByName(name: string): Company | null {
+  return get<Company>('SELECT * FROM companies WHERE lower(name) = lower(?)', name.trim()) ?? null;
+}
+
 export function listCompanies(kind: Company['kind']): Company[] {
   return all<Company>('SELECT * FROM companies WHERE kind = ? ORDER BY name', kind);
 }

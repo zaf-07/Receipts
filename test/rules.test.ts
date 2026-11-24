@@ -7,7 +7,7 @@ import { freshness, scoreLead, tierFor } from '../server/domain/scoring';
 import { containsSnippet, htmlToText } from '../server/domain/text';
 import { ruleFacts, rulePeople, ruleSignals } from '../server/agents/extractor';
 import { unsupportedFigures, validateDraft } from '../server/agents/writer';
-import { sharesCategory } from '../server/agents/researcher';
+import { ownDomainFrom, sharesCategory } from '../server/agents/researcher';
 import { scanDraft } from '../server/agents/security';
 import { costOf } from '../server/services/usage';
 import type { Company, Message, Person } from '../shared/types';
@@ -273,4 +273,12 @@ test('model cost is computed from list prices, and an unknown model has no price
   assert.equal(costOf('claude-opus-5-5', 1_000_000, 1_000_000), 24);
   assert.equal(costOf('claude-opus-5-5', 2000, 500), (2000 * 4 + 500 * 20) / 1_000_000);
   assert.equal(costOf('some-other-model', 1000, 1000), null);
+});
+
+test('a company domain is taken from a link on the page only when the host is named after the company', () => {
+  const page = (html: string) => ({ html, url: 'https://job-boards.greenhouse.io/mithril' });
+  assert.equal(ownDomainFrom(page('<a href="https://www.mithril.ai/about">About</a> <a href="https://twitter.com/mithril">X</a>'), 'Mithril'), 'mithril.ai');
+  assert.equal(ownDomainFrom(page('<a href="https://blog.cloudflare.com/post">Blog</a>'), 'Cloudflare, Inc.'), 'cloudflare.com');
+  assert.equal(ownDomainFrom(page('<a href="https://job-boards.greenhouse.io/other">Other</a> <a href="https://example.org/x">x</a>'), 'Mithril'), '', 'no matching link, so the domain stays unknown');
+  assert.equal(ownDomainFrom(page('<a href="https://ai.example/x">x</a>'), 'AI'), '', 'a name too short to match safely');
 });

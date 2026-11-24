@@ -69,6 +69,13 @@ export async function enrichLead(lead: Lead, icp: IcpVersion): Promise<EnrichRes
   const company = getCompany(lead.company_id);
   if (!company) return 'unresolved';
 
+  // Found on a third-party page, with no website of its own on record: there is nowhere to read a contact from.
+  if (!company.domain) {
+    const note = "The company's own website is not known yet, so no contact could be read.";
+    updateLead(lead.id, { enrich_status: 'unresolved', enrich_note: note });
+    log('enricher', 'warn', `${company.name}: contact unresolved. ${note}`, { lead_id: lead.id });
+    return 'unresolved';
+  }
   const page = await findTeamPage(company.site_url);
   const people: PersonHit[] = page
     ? isWorldUrl(page.url)

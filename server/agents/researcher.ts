@@ -9,6 +9,7 @@ import {
   createCompany,
   createLead,
   findCompany,
+  findCompanyByName,
   getCompany,
   leadForCompany,
   listCompanies,
@@ -237,7 +238,8 @@ export async function runSearch(icp: IcpVersion, profile: Profile, pass: 'discov
     out.blocker = 'Live web mode needs model credentials. Set ANTHROPIC_API_KEY, or switch RECEIPTS_SOURCE back to world.';
     return out;
   }
-  const plan = pass === 'ingest' && config.source === 'live' ? icp.search_plan.slice(0, 4) : icp.search_plan;
+  // On the live web every search and every page read is a model call, so both are capped.
+  const plan = config.source === 'live' ? icp.search_plan.slice(0, pass === 'ingest' ? Math.min(4, config.liveMaxSearches) : config.liveMaxSearches) : icp.search_plan;
   out.searches = plan.length;
   log('researcher', 'start', `${pass === 'ingest' ? 'Refreshing signals' : 'Discovery'}: running ${plan.length} searches from ICP v${icp.version}.`);
 
@@ -248,7 +250,7 @@ export async function runSearch(icp: IcpVersion, profile: Profile, pass: 'discov
   }
 
   if (config.source === 'live') {
-    out.targets = [...found].slice(0, 18).map((url) => ({ url, name: new URL(url).host.replace(/^www\./, '') }));
+    out.targets = [...found].slice(0, config.liveMaxPages).map((url) => ({ url, name: new URL(url).host.replace(/^www\./, '') }));
     log('researcher', 'handoff', `${found.size} result pages found. Reading the first ${out.targets.length} in parallel, one task each.`);
     return out;
   }
@@ -288,6 +290,25 @@ export async function runSearch(icp: IcpVersion, profile: Profile, pass: 'discov
   return out;
 }
 
+/**
+ * A job board or news page rarely states the company domain, but it usually links to the company.
+ * Take a linked host only when its name is the company name, so a guess is never recorded as a fact.
+ */
+export function ownDomainFrom(page: Pick<FetchedPage, 'html' | 'url'>, company: string): string {
+  const slug = company.toLowerCase().replace(/\b(inc|llc|ltd|corp|co|gmbh|labs?)\b\.?/g, '').replace(/[^a-z0-9]/g, '');
+  if (slug.length < 3) return '';
+  const here = new URL(page.url).host.replace(/^www\./, '');
+  for (const link of links(page.html, page.url)) {
+    const host = new URL(link).host.toLowerCase().replace(/^www\./, '');
+    if (host === here) continue;
+    const labels = host.split('.');
+    // The label just before the public suffix: "mithril" in mithril.ai, "cloudflare" in blog.cloudflare.com.
+    const name = labels.length >= 2 ? labels[labels.length - 2].replace(/[^a-z0-9]/g, '') : '';
+    if (name === slug) return labels.slice(-2).join('.');
+  }
+  return '';
+}
+
 // ---------- the read task ----------
 
 /** Read one account and append its receipts. Scoped to a single company, so read tasks never collide. */
@@ -320,6 +341,8 @@ async function readLivePage(url: string, icp: IcpVersion, profile: Profile): Pro
   const tally: Tally = { receipts: [], rejected: 0 };
   const out: ReadOutcome = { name: new URL(url).host.replace(/^www\./, ''), company_id: null, lead_id: null, receipts: tally.receipts, rejected: 0, pages: 1 };
   const page = await fetchPage(url);
+  // A site that refuses or has removed the page will refuse again. That is a result, not a failure to retry.
+  if (!page.ok && [401, 403, 404, 410, 451].includes(page.status)) return { ...out, skipped: `The site would not serve this page (HTTP ${page.status}), so nothing was read from it.` };
   if (!page.ok) throw new Error(page.error ?? 'page is unreachable');
   if (page.text.length <= 200) return { ...out, skipped: 'The page has too little text to read.' };
 
@@ -331,8 +354,16 @@ async function readLivePage(url: string, icp: IcpVersion, profile: Profile): Pro
   if (profile.customers.some((c) => c.toLowerCase() === reading.company_name.toLowerCase())) return { ...out, rejected: tally.rejected, skipped: 'Existing customer.' };
   if (reading.facts.length === 0 && reading.signals.length === 0) return { ...out, rejected: tally.rejected, skipped: 'Nothing quotable on the page.' };
 
-  const domain = reading.company_domain || new URL(page.url).host.replace(/^www\./, '');
-  const company = ensureCompany(reading.company_name, domain, `https://${domain}/`, reading.is_competitor ? 'competitor' : 'prospect');
+  // The page may be a third party writing about the company, so its host is not taken as the
+  // company domain. When the page does not show the domain it stays unknown and the account is keyed by name.
+  const stated = reading.company_domain.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '');
+  const domain = stated || ownDomainFrom(page, reading.company_name);
+  const kind = reading.is_competitor ? 'competitor' : 'prospect';
+  const company =
+    (domain ? findCompany(`https://${domain}/`, domain) : null) ??
+    findCompanyByName(reading.company_name) ??
+    createCompany({ name: reading.company_name, domain, site_url: domain ? `https://${domain}/` : page.url, kind });
+  if (domain && !company.domain) updateCompany(company.id, { domain, site_url: `https://${domain}/` });
   out.company_id = company.id;
   applyFacts(company, page, reading.facts, tally);
   if (company.kind === 'competitor') return { ...out, rejected: tally.rejected, skipped: 'Recorded as a competitor.' };

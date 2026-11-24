@@ -249,7 +249,10 @@ Rules:
 - Only report what this page states. Never infer and never add outside knowledge.
 - Every snippet must be copied word for word from the page. A fact without a verbatim snippet must be left out.
 - Signals are: job_posting, funding, exec_hire, tech_change (a technology or pricing change), layoffs, hiring_freeze, competitor_signed (the company signed with a competitor of ours).
-- If the page is a list or roundup about many companies, report only the main one, or nothing.`,
+- If the page is a list or roundup about many companies, report only the main one, or nothing.
+- A signal is a reason for this company to buy our product now, or a reason not to contact it. A product launch, a model release or a partnership is not a tech_change unless it changes how the company prices, bills or builds in our product category.
+- Give event_date as precisely as the page allows. Today is ${new Date().toISOString().slice(0, 10)}.
+- company_domain is the company's own website. If the page does not show it, leave it empty. Never give the domain of the site hosting this page unless that site belongs to the company.`,
     `URL: ${url}\n\nPAGE TEXT:\n${pageText.slice(0, 12000)}`,
   );
   if (!out || !out.company_name) return null;
