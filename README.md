@@ -211,6 +211,8 @@ Simulated, on purpose:
 `POST /api/inbound` accepts a provider-normalized payload with `message_id`, `text`, and an optional `source`.
 It only accepts replies to messages that were already sent. A reply advances the lead from Contacted to Replied, creates the next ICP version from the cited receipts, and replies containing booking language also advance it to Meeting Booked. The endpoint is intentionally provider-neutral; a production mail-provider adapter still needs the provider's webhook-signature verification configured before it is exposed publicly.
 
+For a signed local demonstration, set `INBOUND_WEBHOOK_SECRET`. Requests must then include `x-receipts-signature: sha256=<HMAC-SHA256 of the raw JSON body>`; unsigned or mismatched requests are rejected. Source fetching also refuses non-HTTP URLs, credential-bearing URLs, private-network targets, and hostnames that resolve to private address space. Credential-shaped values are redacted from activity events and model prompts.
+
 Written but not yet exercised against the real service:
 
 - **Model-backed agents and live web mode.** The code paths typecheck and fall back cleanly, but have not been run with a key.

@@ -39,6 +39,7 @@ import { setPageStatus, seedWorld, worldRouter, worldSeeded } from './world/worl
 import { EXAMPLE_PROFILE } from './world/seed';
 import { AGENT_ROLES, bandEnabled, bandStatus, connectBand, pollBand } from './integrations/band';
 import { addTaskMessage, createManualTask, setManualStatus } from './services/tasks';
+import { validInboundSignature } from './services/security';
 
 const text = (v: unknown, max = 4000) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 const list = (v: unknown) =>
@@ -51,9 +52,18 @@ function background(work: Promise<unknown>): void {
   });
 }
 
+type RawRequest = Request & { rawBody?: Buffer };
+
 export function createApp() {
   const app = express();
-  app.use(express.json({ limit: '200kb' }));
+  app.use(
+    express.json({
+      limit: '200kb',
+      verify: (req, _res, buffer) => {
+        (req as RawRequest).rawBody = Buffer.from(buffer);
+      },
+    }),
+  );
 
   // The seeded demo world: fictional company sites, served as real pages.
   app.use('/world', worldRouter());
@@ -211,6 +221,12 @@ export function createApp() {
 
   /** Provider adapters POST the Receipts message id and the plain-text reply here. */
   api.post('/inbound', (req, res) => {
+    if (config.inboundWebhookSecret) {
+      const signed = req as RawRequest;
+      if (!validInboundSignature(signed.rawBody ?? Buffer.alloc(0), req.get('x-receipts-signature'), config.inboundWebhookSecret)) {
+        throw new UserError('Inbound signature could not be verified.');
+      }
+    }
     const messageId = text(req.body.message_id, 120);
     const reply = text(req.body.text, 4000);
     if (!messageId || !reply) throw new UserError('message_id and reply text are required.');

@@ -3,6 +3,7 @@ import { all, run } from '../db';
 import { nowIso } from '../clock';
 import { forwardHandoff } from '../integrations/band';
 import { currentTask } from './context';
+import { redactSensitive } from './security';
 
 type Listener = (event: { type: 'activity'; entry: ActivityEntry } | { type: 'changed' }) => void;
 const listeners = new Set<Listener>();
@@ -35,7 +36,7 @@ export function log(
     at,
     agent,
     kind,
-    message,
+    redactSensitive(message),
     extra.lead_id ?? null,
     extra.ref ?? null,
     extra.task_id ?? scope?.task_id ?? null,

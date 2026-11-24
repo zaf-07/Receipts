@@ -3216,8 +3216,29 @@ kbd {
 
 /* ---------- demo panel ---------- */
 
+.demo-panel-shell {
+  display: grid;
+  grid-template-rows: 0fr;
+  overflow: hidden;
+  padding: 0 28px;
+  opacity: 0;
+  transform: translateY(-14px);
+  transition:
+    grid-template-rows 340ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 180ms ease,
+    transform 340ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: grid-template-rows, opacity, transform;
+}
+
+.demo-panel-shell.open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .demo-panel {
-  margin: 16px 28px 0;
+  min-height: 0;
+  margin: 16px 0 0;
   background: var(--white);
   border: 1px solid var(--ink);
   border-radius: 8px;

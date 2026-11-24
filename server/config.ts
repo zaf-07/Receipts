@@ -35,6 +35,8 @@ export const config = {
   },
   /** Legacy generic handoff sink. Prefer the first-class Band configuration below. */
   agentWebhook: env.AGENT_EVENTS_WEBHOOK_URL ?? '',
+  /** Optional HMAC secret for provider-normalized inbound replies. When unset, /api/inbound is local-demo mode only. */
+  inboundWebhookSecret: env.INBOUND_WEBHOOK_SECRET ?? '',
   /**
    * Band Agent API credentials. A single Receipts orchestrator identity writes the
    * visible activity stream into a Band room; each entry keeps the originating

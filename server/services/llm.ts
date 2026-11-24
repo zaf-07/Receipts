@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { type z, toJSONSchema } from 'zod';
 import { config, llmEnabled } from '../config';
+import { redactSensitive } from './security';
 import { recordUsage } from './usage';
 
 let client: Anthropic | null = null;
@@ -63,13 +64,15 @@ export async function structured<S extends z.ZodType>(
   effort: 'low' | 'medium' | 'high' = 'low',
 ): Promise<z.infer<S> | null> {
   if (!llmEnabled()) return null;
-  if (config.provider === 'groq') return groqStructured(where, schema, system, user);
+  const safeSystem = redactSensitive(system);
+  const safeUser = redactSensitive(user);
+  if (config.provider === 'groq') return groqStructured(where, schema, safeSystem, safeUser);
   try {
     const res = await anthropic().messages.parse({
       model: config.model,
       max_tokens: 16000,
-      system,
-      messages: [{ role: 'user', content: user }],
+      system: safeSystem,
+      messages: [{ role: 'user', content: safeUser }],
       output_config: { effort, format: zodOutputFormat(schema) },
     });
     if (res.stop_reason === 'refusal' || res.stop_reason === 'max_tokens') {

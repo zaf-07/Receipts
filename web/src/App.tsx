@@ -238,7 +238,13 @@ export function App() {
             </div>
           )}
           {offline && <div className="notice">Lost the connection to the server. Retrying.</div>}
-          {demoOpen && <DemoPanel onClose={() => setDemoOpen(false)} />}
+          <div
+            className={`demo-panel-shell ${demoOpen ? 'open' : ''}`}
+            aria-hidden={!demoOpen}
+            inert={!demoOpen}
+          >
+            <DemoPanel onClose={() => setDemoOpen(false)} />
+          </div>
           {view === 'intake' && <Intake />}
           {view === 'accounts' && <Accounts />}
           {view === 'review' && <Review />}
