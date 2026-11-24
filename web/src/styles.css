@@ -117,14 +117,17 @@ textarea {
 }
 
 .app {
+  --feed-width: 0px;
   display: grid;
-  grid-template-columns: 204px minmax(0, 1fr);
+  grid-template-columns: 204px minmax(0, 1fr) var(--feed-width);
   grid-template-rows: 58px minmax(0, 1fr);
   height: 100%;
+  overflow-x: clip;
+  transition: grid-template-columns 260ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .app.with-feed {
-  grid-template-columns: 204px minmax(0, 1fr) 316px;
+  --feed-width: 316px;
 }
 
 .top {
@@ -2649,6 +2652,19 @@ kbd {
   background: var(--card);
   overflow: auto;
   min-width: 0;
+  width: 316px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(28px);
+  transition:
+    transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 180ms ease-out;
+}
+
+.with-feed .feed-rail {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
 }
 
 .feed-rail > header {
@@ -3055,6 +3071,11 @@ kbd {
     width: 316px;
     z-index: 30;
     box-shadow: -10px 0 30px rgba(23, 22, 15, 0.18);
+    transform: translateX(calc(100% + 28px));
+  }
+
+  .with-feed .feed-rail {
+    transform: translateX(0);
   }
 
   .two-col,

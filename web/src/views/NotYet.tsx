@@ -41,10 +41,6 @@ export function NotYet() {
       <header className="page-head">
         <div>
           <h1>Not yet</h1>
-          <p>
-            Leads the agent declined to contact. A lead with no live positive receipt waits here with the missing evidence named. When a new signal arrives it wakes
-            up on its own; when its last receipt expires it comes back.
-          </p>
         </div>
         <div className="head-actions">
           <button type="button" className="btn primary" disabled={Boolean(snap.running) || !snap.icp} onClick={() => void act('/ingest')}>

@@ -204,8 +204,7 @@ export function App() {
           {view === 'competitors' && <Competitors />}
         </main>
 
-        {feedOpen && (
-          <aside className="feed-rail" aria-label="Agent activity">
+        <aside className="feed-rail" aria-label="Agent activity" aria-hidden={!feedOpen} inert={!feedOpen}>
             <header>
               <h3>Agent activity</h3>
               <button type="button" className="link" onClick={() => setFeedOpen(false)}>
@@ -213,8 +212,7 @@ export function App() {
               </button>
             </header>
             <Feed entries={snap.activity} onLead={setLeadId} />
-          </aside>
-        )}
+        </aside>
 
         {lead && <LeadDrawer lead={lead} onClose={() => setLeadId(null)} />}
       </div>

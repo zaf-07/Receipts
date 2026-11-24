@@ -45,7 +45,6 @@ export function Dashboard() {
       <header className="page-head">
         <div>
           <h1>Dashboard</h1>
-          <p>The number that matters is what the system refused to say. Everything else follows from that.</p>
         </div>
       </header>
 

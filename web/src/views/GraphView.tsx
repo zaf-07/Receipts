@@ -31,11 +31,6 @@ export function GraphView() {
       <header className="page-head">
         <div>
           <h1>Graph</h1>
-          <p>
-            {tab === 'journey'
-              ? 'Follow one lead step by step: from a public page, to a receipt, to a person, to a draft the Skeptic has checked, to the human gate. Every step is read from that lead’s real records.'
-              : 'Every account at once. A projection of the receipts, not a second database. Hover a row to trace one lead; click to open it.'}
-          </p>
         </div>
         <div className="tabs" role="tablist">
           <button type="button" role="tab" aria-selected={tab === 'journey'} className={tab === 'journey' ? 'active' : ''} onClick={() => setTab('journey')}>
