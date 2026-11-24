@@ -32,6 +32,14 @@ export const config = {
     apiKey: env.FLEXPRICE_API_KEY ?? '',
     baseUrl: env.FLEXPRICE_BASE_URL ?? 'https://api.cloud.flexprice.io',
     customerId: env.FLEXPRICE_CUSTOMER_ID ?? '',
+    /** mirror = meter usage and show the wallet. source = the wallet balance is the credit balance. */
+    wallet: (env.FLEXPRICE_WALLET === 'source' ? 'source' : 'mirror') as 'mirror' | 'source',
+    /** Optional: pin one wallet. Otherwise the customer's active prepaid wallet is found, or created. */
+    walletId: env.FLEXPRICE_WALLET_ID ?? '',
+    currency: env.FLEXPRICE_CURRENCY ?? 'usd',
+    syncMs: Math.max(500, Number(env.FLEXPRICE_SYNC_MS ?? 10_000)),
+    /** How long after our last write before the wallet balance is trusted. Flexprice ingests events asynchronously. */
+    settleMs: Math.max(0, Number(env.FLEXPRICE_SETTLE_MS ?? 15_000)),
   },
   /** Legacy generic handoff sink. Prefer the first-class Band configuration below. */
   agentWebhook: env.AGENT_EVENTS_WEBHOOK_URL ?? '',

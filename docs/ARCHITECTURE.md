@@ -193,7 +193,7 @@ Delivery itself is simulated: the send is recorded, charged and attributed, and 
 | Service | Role | State |
 | --- | --- | --- |
 | **Band** | The room where agents hand off by mention and a person approves. See [BAND.md](BAND.md) | Built to Band's documented Agent API and tested against a stand-in. Not yet run in a real room |
-| **Flexprice** | Mirrors metered events: lead enriched, draft generated, outreach sent, graph query evaluated | Events are posted to `POST /v1/events`. The local ledger is the source of truth for the gate. Not yet run against a real account |
+| **Flexprice** | Meters every billable operation as an event (lead enriched, draft generated, outreach sent, graph query evaluated) and holds the credit wallet. With `FLEXPRICE_WALLET=source` the wallet's real-time balance is the credit balance and the local ledger is a cache of it, so a top-up in Flexprice reopens the gate | Built to the published API reference and tested against a stand-in, including outages. Not yet run against a real account |
 | **Credit gate** | Enrichment and drafting hold credits before they start; a task that cannot be afforded is blocked with the reason | Built and tested |
 | **Snyk** | Dependency scan in CI | Workflow present; runs when `SNYK_TOKEN` is set |
 | **Model provider** | Planner, Writer and live-web extraction | Run end to end with a real key. Every call has a deterministic fallback |
@@ -205,7 +205,7 @@ Delivery itself is simulated: the send is recorded, charged and attributed, and 
 | --- | --- | --- |
 | Neo4j or Kùzu | A graph derived from SQLite | See section 5 |
 | Tavily, Serper, Playwright | The model provider's web search, plus direct page fetches; a seeded world by default | The Skeptic needs pages it can really re-fetch, including ones that change |
-| Apollo, Hunter, Clearbit | Contacts read from the company's own public pages | A contact has to come with a receipt. A vendor adapter would slot in at the Enricher |
+| Apollo, Hunter, Clearbit | Contacts read from the company's own public pages, plus a DNS mail-server check on the address | A contact has to come with a receipt. The check blocks mail to a domain that takes none; it does not claim the mailbox exists. A vendor adapter would slot in at the Enricher |
 | SendGrid, Gmail, LinkedIn APIs | A logged send, and a provider-neutral inbound reply endpoint | Sending real email from a demo is a risk, not a feature |
 | Next.js, Tailwind, Radix | React with Vite and hand-written CSS | One process, one port, no build service |
 
@@ -217,4 +217,6 @@ Delivery itself is simulated: the send is recorded, charged and attributed, and 
 - **Scheduler tests:** dependencies, parallelism under a limit, retries, stale leases, idempotency, credit holds, and that workers cannot create tasks.
 - **Send-gate tests:** delivery is refused without a human review task, from inside any agent task, and by an ordinary update.
 - **Band room tests:** mention handoffs, the blocking review, a person approving and rejecting in the room, and an agent's forged approval being ignored.
+- **Flexprice tests:** the customer and wallet are found or created once, usage is metered as events, the wallet balance becomes the credit balance in both directions, nothing is corrected mid-run, top-ups are idempotent, and an outage leaves the ledger untouched.
+- **Mail server check:** a domain with mail servers, a null MX, no record, and a lookup that fails or times out.
 - **One end-to-end run** of the pipeline over the HTTP API on the seeded world.

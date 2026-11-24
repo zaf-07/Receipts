@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS persons (
   title TEXT NOT NULL,
   email TEXT,
   email_status TEXT NOT NULL,
+  mail_check TEXT NOT NULL DEFAULT 'unchecked',
+  mail_note TEXT,
   previous_companies TEXT NOT NULL DEFAULT '[]',
   confidence REAL NOT NULL,
   created_at TEXT NOT NULL
@@ -280,6 +282,12 @@ export function initDb(path: string): void {
   db.exec(SCHEMA);
   const messageColumns = db.prepare('PRAGMA table_info(messages)').all() as { name: string }[];
   if (!messageColumns.some((column) => column.name === 'variant')) db.exec("ALTER TABLE messages ADD COLUMN variant TEXT NOT NULL DEFAULT 'A'");
+  // Databases created before the mail server check existed.
+  const personColumns = db.prepare('PRAGMA table_info(persons)').all() as { name: string }[];
+  if (!personColumns.some((c) => c.name === 'mail_check')) {
+    db.exec("ALTER TABLE persons ADD COLUMN mail_check TEXT NOT NULL DEFAULT 'unchecked'");
+    db.exec('ALTER TABLE persons ADD COLUMN mail_note TEXT');
+  }
   // Databases created before task runs existed: link each activity line to the task that produced it.
   const activityColumns = db.prepare('PRAGMA table_info(activity)').all() as { name: string }[];
   for (const column of ['task_id', 'run_id']) {

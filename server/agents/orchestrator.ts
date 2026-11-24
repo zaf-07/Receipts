@@ -7,6 +7,8 @@ import { UserError } from '../errors';
 import { isLive, isTrigger } from '../domain/state';
 import { changed, log } from '../services/activity';
 import { balance, credit } from '../services/ledger';
+import { mirrorTopUp, restoreDemoWallet, syncWallet } from '../services/billing';
+import { flexpriceStatus } from '../integrations/flexprice';
 import { deliver } from '../services/delivery';
 import { moveStage, recomputeAll } from '../services/leads';
 import {
@@ -797,9 +799,22 @@ export function retry(taskId: string): TaskRun {
 
 export function topUp(amount: number) {
   credit(amount, 'topup', 'Manual top-up');
+  mirrorTopUp(amount);
   log('ledger', 'info', `Topped up ${amount} credits. Balance is ${balance()}. Resuming held work.`);
   changed();
   return currentIcp() && getProfile() ? resume() : Promise.resolve();
+}
+
+/**
+ * Bring the credit balance in line with the Flexprice wallet. When the wallet is the source and
+ * someone has added credits to it in Flexprice, the work that was waiting for credits continues.
+ */
+export async function syncBilling(): Promise<void> {
+  const before = flexpriceStatus();
+  const result = await syncWallet(!running && !pool.busy());
+  const after = flexpriceStatus();
+  if (result.changed || before.balance !== after.balance || before.connected !== after.connected || before.last_error !== after.last_error) changed();
+  if (result.raised && !running && currentIcp() && getProfile()) await resume().catch(() => undefined);
 }
 
 export function moveClock(days: number): void {
@@ -826,6 +841,7 @@ export function resetDemo(): void {
   wipe();
   seedWorld();
   credit(config.startingCredits, 'grant', 'Starting credits');
+  void restoreDemoWallet();
   log('system', 'info', `Fresh start: empty pipeline, seeded demo world, ${config.startingCredits} credits.`);
   changed();
 }

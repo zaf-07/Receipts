@@ -63,6 +63,9 @@ export interface Company {
 
 export type EmailStatus = 'verified' | 'guessed' | 'unresolved';
 
+/** What a DNS lookup says about the address: its domain takes mail, takes none, or was not looked up. */
+export type MailCheck = 'accepts_mail' | 'no_mail_server' | 'unchecked';
+
 export interface Person {
   id: string;
   company_id: string;
@@ -70,6 +73,8 @@ export interface Person {
   title: string;
   email: string | null;
   email_status: EmailStatus;
+  mail_check: MailCheck;
+  mail_note: string | null;
   previous_companies: string[];
   confidence: number;
 }
@@ -198,6 +203,23 @@ export interface Message {
   created_at: string;
   updated_at: string;
   sent_at: string | null;
+}
+
+/** The Flexprice wallet behind the credit balance, as last read. */
+export interface WalletStatus {
+  configured: boolean;
+  /**
+   * mirror: usage is metered to Flexprice and its wallet is shown next to the local ledger.
+   * source: the wallet balance is the credit balance, and the local ledger follows it.
+   */
+  mode: 'off' | 'mirror' | 'source';
+  connected: boolean;
+  wallet_id: string | null;
+  /** Credits left in the wallet at the last read. Null until it has been read. */
+  balance: number | null;
+  synced_at: string | null;
+  events_sent: number;
+  last_error: string | null;
 }
 
 export interface LedgerEntry {
@@ -400,6 +422,7 @@ export interface Snapshot {
     costs: { enrich: number; draft: number; send: number };
     ledger: LedgerEntry[];
     gated: boolean;
+    wallet: WalletStatus;
   };
   leads: LeadView[];
   competitors: CompetitorView[];

@@ -94,6 +94,8 @@ export function scanDraft(message: Message, ctx: ScanContext): Finding[] {
     const target = ctx.company.domain.toLowerCase();
     if (domain !== target && !domain.endsWith(`.${target}`)) block('recipient_domain', `The recipient's address is at ${domain}, not at ${target}.`);
     else if (ctx.person.email_status === 'guessed') warn('guessed_recipient', 'The recipient address is a pattern guess with no receipt.');
+    // Checked whatever the domain is: mail to a domain with no mail server only bounces.
+    if (ctx.person.mail_check === 'no_mail_server') block('undeliverable_recipient', ctx.person.mail_note ?? `${domain} publishes no mail server.`);
   }
 
   // Sources behind the claims.

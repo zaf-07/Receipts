@@ -30,6 +30,7 @@ import {
   resetDemo,
   resume,
   retry,
+  syncBilling,
   reverify,
   tick,
   topUp,
@@ -38,6 +39,7 @@ import {
 import { setPageStatus, seedWorld, worldRouter, worldSeeded } from './world/world';
 import { EXAMPLE_PROFILE } from './world/seed';
 import { AGENT_ROLES, bandEnabled, bandStatus, connectBand, pollBand } from './integrations/band';
+import { flexpriceEnabled } from './integrations/flexprice';
 import { addTaskMessage, createManualTask, setManualStatus } from './services/tasks';
 import { validInboundSignature } from './services/security';
 
@@ -319,6 +321,14 @@ export async function start(opts: { port?: number; dbPath?: string } = {}): Prom
     listener.unref();
   }
 
+  // Find the Flexprice wallet when one is configured, then keep the balance in step with it.
+  let billing: NodeJS.Timeout | null = null;
+  if (flexpriceEnabled()) {
+    await syncBilling();
+    billing = setInterval(() => void syncBilling(), config.flexprice.syncMs);
+    billing.unref();
+  }
+
   // Receipts expire on their own, so the state rules also run on a clock tick.
   const timer = setInterval(tick, 30_000);
   timer.unref();
@@ -331,6 +341,7 @@ export async function start(opts: { port?: number; dbPath?: string } = {}): Prom
         clearInterval(timer);
         clearInterval(waker);
         if (listener) clearInterval(listener);
+        if (billing) clearInterval(billing);
         server.closeAllConnections();
         server.close(() => done());
       }),

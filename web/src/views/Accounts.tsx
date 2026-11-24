@@ -52,7 +52,7 @@ function Email({ lead, now }: { lead: LeadView; now: string }) {
     <span className="fact low">
       <span className="mono">{p.email}</span>
       <span className="no-receipt" title={lead.enrich_note ?? ''}>
-        guessed, no receipt
+        {p.mail_check === 'no_mail_server' ? 'guessed, domain takes no mail' : p.mail_check === 'accepts_mail' ? 'guessed, domain takes mail' : 'guessed, no receipt'}
       </span>
     </span>
   );

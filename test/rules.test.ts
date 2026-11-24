@@ -8,6 +8,7 @@ import { containsSnippet, htmlToText } from '../server/domain/text';
 import { ruleFacts, rulePeople, ruleSignals } from '../server/agents/extractor';
 import { unsupportedFigures, validateDraft } from '../server/agents/writer';
 import { ownDomainFrom, sharesCategory } from '../server/agents/researcher';
+import { checkMailDomain, setMxResolver } from '../server/services/deliverability';
 import { scanDraft } from '../server/agents/security';
 import { costOf } from '../server/services/usage';
 import type { Company, Message, Person } from '../shared/types';
@@ -231,7 +232,7 @@ test('a rival is recognised from single-word and from phrase keywords alike', ()
 
 test('the security scan clears a clean draft and blocks links, leaks and a wrong recipient', () => {
   const company = { id: 'c_1', name: 'Acme', domain: 'acme.example', site_url: 'https://acme.example/', industry: null, headcount: null, region: null, hq: null, kind: 'prospect', differentiator: null } as Company;
-  const person = { id: 'p_1', company_id: 'c_1', name: 'Dana Whitfield', title: 'CRO', email: 'dana@acme.example', email_status: 'verified', previous_companies: [], confidence: 0.9 } as Person;
+  const person = { id: 'p_1', company_id: 'c_1', name: 'Dana Whitfield', title: 'CRO', email: 'dana@acme.example', email_status: 'verified', mail_check: 'unchecked', mail_note: null, previous_companies: [], confidence: 0.9 } as Person;
   const cited = [receipt('funding', 5, { source_url: 'https://news.acme.example/series-b' })];
   const draft = (...lines: string[]): Message =>
     ({
@@ -260,6 +261,12 @@ test('the security scan clears a clean draft and blocks links, leaks and a wrong
   assert.deepEqual(codes(draft('Hi Dana,'), { person: { ...person, email: 'dana@gmail.example' } }), ['block:recipient_domain']);
   assert.deepEqual(codes(draft('Hi Dana,'), { person: { ...person, email_status: 'guessed' } }), ['warn:guessed_recipient'], 'a guessed address is a warning, not a block');
   assert.deepEqual(codes(draft('Hi Dana,'), { person: null }), ['block:no_recipient']);
+  assert.deepEqual(
+    codes(draft('Hi Dana,'), { person: { ...person, mail_check: 'no_mail_server', mail_note: 'acme.example publishes no mail server.' } }),
+    ['block:undeliverable_recipient'],
+    'an address whose domain takes no mail is never sent to, even when it was printed on the page',
+  );
+  assert.deepEqual(codes(draft('Hi Dana,'), { person: { ...person, mail_check: 'accepts_mail' } }), []);
 
   // A struck sentence is not part of what would be sent, so it is not scanned.
   const struck = draft('See https://bit.ly/3xyz');
@@ -281,4 +288,44 @@ test('a company domain is taken from a link on the page only when the host is na
   assert.equal(ownDomainFrom(page('<a href="https://blog.cloudflare.com/post">Blog</a>'), 'Cloudflare, Inc.'), 'cloudflare.com');
   assert.equal(ownDomainFrom(page('<a href="https://job-boards.greenhouse.io/other">Other</a> <a href="https://example.org/x">x</a>'), 'Mithril'), '', 'no matching link, so the domain stays unknown');
   assert.equal(ownDomainFrom(page('<a href="https://ai.example/x">x</a>'), 'AI'), '', 'a name too short to match safely');
+});
+
+// ---------- the mail server check ----------
+
+test('the mail server check reports what DNS says and nothing more', async () => {
+  const asked: string[] = [];
+  const dnsError = (code: string) => Object.assign(new Error(code), { code });
+  setMxResolver(async (domain) => {
+    asked.push(domain);
+    if (domain === 'takes-mail.io') return [{ exchange: 'backup.mx.io', priority: 20 }, { exchange: 'primary.mx.io', priority: 10 }];
+    if (domain === 'null-mx.io') return [{ exchange: '.', priority: 0 }];
+    if (domain === 'nothing.io') throw dnsError('ENODATA');
+    if (domain === 'gone.io') throw dnsError('ENOTFOUND');
+    if (domain === 'flaky.io') throw dnsError('ESERVFAIL');
+    return new Promise(() => undefined);
+  });
+  try {
+    const ok = await checkMailDomain('Dana@Takes-Mail.io');
+    assert.equal(ok.check, 'accepts_mail');
+    assert.match(ok.note, /primary\.mx\.io/, 'the preferred server is the one named');
+    assert.match(ok.note, /mailbox itself is not confirmed/, 'a passing domain is never reported as a valid address');
+
+    assert.equal((await checkMailDomain('a@null-mx.io')).check, 'no_mail_server', 'a null MX is a refusal');
+    assert.equal((await checkMailDomain('a@nothing.io')).check, 'no_mail_server');
+    assert.equal((await checkMailDomain('a@gone.io')).check, 'no_mail_server');
+
+    // No answer is not a no. A failed or slow lookup is not held against the address.
+    assert.equal((await checkMailDomain('a@flaky.io')).check, 'unchecked');
+    assert.equal((await checkMailDomain('a@slow.io', 20)).check, 'unchecked');
+
+    // Reserved demo domains are never looked up, and an answer is asked for once per domain.
+    asked.length = 0;
+    assert.equal((await checkMailDomain('dana@acme.example')).check, 'unchecked');
+    assert.equal((await checkMailDomain(null)).check, 'unchecked');
+    await checkMailDomain('someone.else@takes-mail.io');
+    await checkMailDomain('retry@flaky.io');
+    assert.deepEqual(asked, ['flaky.io'], 'answers are cached, failures are asked again');
+  } finally {
+    setMxResolver(null);
+  }
 });

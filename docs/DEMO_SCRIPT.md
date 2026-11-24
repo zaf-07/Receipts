@@ -2,6 +2,10 @@
 
 One take, one screen, one voice. The line to land: **"AI SDRs send confident nonsense. Ours can't."**
 
+## The short way
+
+Open Demo controls and press **Play the guided demo**, or open http://localhost:8787/?tour=1. The app resets itself and plays the whole script below with the narration on screen, in about two and a half minutes. Start the screen recorder, press play, and read the lines aloud as they appear. Press **stop** at any point to take over by hand.
+
 ## Before recording
 
 1. `npm run demo`, open http://localhost:8787.

@@ -20,7 +20,7 @@ import { config, llmEnabled } from '../config';
 import { getSetting, setSetting } from '../db';
 import { isExpired, isLive, isTrigger } from '../domain/state';
 import { firstName, normalize } from '../domain/text';
-import { flexpriceEnabled, meterEvent } from '../integrations/flexprice';
+import { flexpriceEnabled, flexpriceStatus, meterEvent } from '../integrations/flexprice';
 import { bandEnabled, bandStatus } from '../integrations/band';
 import { unsupportedFigures, warmIntro } from '../agents/writer';
 import { recentActivity } from './activity';
@@ -173,7 +173,7 @@ export function buildSnapshot(running: string | null): Snapshot {
     profile: getProfile(),
     icp: currentIcp(),
     icp_versions: listIcpVersions(),
-    credits: { balance: bal, costs: config.costs, ledger: recentLedger(), gated: waiting },
+    credits: { balance: bal, costs: config.costs, ledger: recentLedger(), gated: waiting, wallet: flexpriceStatus() },
     leads,
     competitors: buildCompetitors(),
     metrics: buildMetrics(leads),

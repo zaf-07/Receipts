@@ -3,6 +3,7 @@ import { config } from '../config';
 import { containsSnippet, links } from '../domain/text';
 import { fetchPage, type FetchedPage } from '../services/fetcher';
 import { charge } from '../services/ledger';
+import { checkMailDomain } from '../services/deliverability';
 import { log } from '../services/activity';
 import { addReceipt, createPerson, getCompany, updateLead } from '../services/store';
 import { isWorldUrl } from '../world/world';
@@ -104,7 +105,10 @@ export async function enrichLead(lead: Lead, icp: IcpVersion): Promise<EnrichRes
   const onPage = hit.email != null && containsSnippet(page.text, hit.email);
   const email = onPage ? hit.email : guessEmail(hit.name, company.domain);
   const status = onPage ? 'verified' : 'guessed';
-  const confidence = onPage ? (pick.score > 0 ? 0.9 : 0.7) : 0.35;
+  // One lookup the Enricher can do itself: does the domain take mail at all? It says nothing about the mailbox.
+  const mail = await checkMailDomain(email);
+  const dead = mail.check === 'no_mail_server';
+  const confidence = dead ? 0.05 : onPage ? (pick.score > 0 ? 0.9 : 0.7) : 0.35;
 
   const person = createPerson({
     company_id: company.id,
@@ -112,6 +116,8 @@ export async function enrichLead(lead: Lead, icp: IcpVersion): Promise<EnrichRes
     title: hit.title,
     email,
     email_status: status,
+    mail_check: mail.check,
+    mail_note: mail.note,
     previous_companies: hit.previous,
     confidence,
   });
@@ -123,12 +129,18 @@ export async function enrichLead(lead: Lead, icp: IcpVersion): Promise<EnrichRes
     addReceipt({ ...base, field: 'previous_company', claim: `${hit.name} previously worked at ${prev}.`, snippet: hit.snippet, confidence: 0.8, data: { company: prev } });
   }
 
+  if (dead) {
+    const note = `${mail.note} ${onPage ? 'The address is printed on the team page all the same.' : `${email} was a pattern guess.`}`;
+    updateLead(lead.id, { person_id: person.id, enrich_status: 'low_confidence', enrich_note: note });
+    log('enricher', 'warn', `${company.name}: ${hit.name}, ${hit.title}. ${note} Nothing can be sent to it.`, { lead_id: lead.id });
+    return 'low_confidence';
+  }
   if (onPage) {
     updateLead(lead.id, { person_id: person.id, enrich_status: 'resolved', enrich_note: null });
     log('enricher', 'done', `${company.name}: ${hit.name}, ${hit.title}. Email found on the team page.`, { lead_id: lead.id });
     return 'resolved';
   }
-  const note = `Email not published. ${email} is a pattern guess and has no receipt.`;
+  const note = `Email not published. ${email} is a pattern guess and has no receipt.${mail.check === 'accepts_mail' ? ' Its domain does accept mail.' : ''}`;
   updateLead(lead.id, { person_id: person.id, enrich_status: 'low_confidence', enrich_note: note });
   log('enricher', 'warn', `${company.name}: ${hit.name}, ${hit.title}. ${note} Marked low confidence.`, { lead_id: lead.id });
   return 'low_confidence';

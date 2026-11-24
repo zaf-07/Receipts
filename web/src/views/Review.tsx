@@ -83,6 +83,7 @@ export function ReviewCard({ lead, compact = false }: { lead: LeadView; compact?
       {lead.person?.email_status === 'guessed' && pending && (
         <p className="warning">The email address is a pattern guess with no receipt. {lead.enrich_note}</p>
       )}
+      {lead.person?.email_status === 'verified' && lead.person.mail_check === 'accepts_mail' && pending && <p className="muted small">Mail server check: {lead.person.mail_note}</p>}
       {message.status === 'blocked' && <p className="warning bad">Blocked before review: {message.block_reason}</p>}
       {message.status === 'rejected' && <p className="warning">Rejected by {message.reviewer}: {message.block_reason}</p>}
       {message.status === 'sent' && (

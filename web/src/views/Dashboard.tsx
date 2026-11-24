@@ -1,4 +1,4 @@
-import type { SegmentRow } from '../../../shared/types';
+import type { SegmentRow, WalletStatus } from '../../../shared/types';
 import { useUi } from '../api';
 import { Section, fmtDate, fmtTime, pct } from '../components';
 
@@ -33,7 +33,19 @@ function Funnel({ rows }: { rows: SegmentRow[] }) {
   );
 }
 
-const OP: Record<string, string> = { enrich: 'Lead enriched', draft: 'Draft generated', send: 'Outreach sent', topup: 'Top-up', grant: 'Starting credits' };
+const OP: Record<string, string> = { enrich: 'Lead enriched', draft: 'Draft generated', send: 'Outreach sent', topup: 'Top-up', grant: 'Starting credits', flexprice: 'Flexprice wallet' };
+
+/** One sentence on where the credit balance comes from, so nobody has to guess which number is real. */
+function billingLine(w: WalletStatus): string {
+  if (!w.configured) return 'Metered on the local ledger. Set FLEXPRICE_API_KEY to meter usage to Flexprice.';
+  const events = `${w.events_sent} usage event${w.events_sent === 1 ? '' : 's'} sent to Flexprice`;
+  if (!w.connected || w.balance === null) {
+    return `${events}. Its wallet could not be read${w.last_error ? ` (${w.last_error})` : ''}, so the local ledger is the gate.`;
+  }
+  const read = w.synced_at ? `, read at ${fmtTime(w.synced_at)}` : '';
+  if (w.mode === 'source') return `The balance is the Flexprice wallet: ${w.balance} credits${read}. ${events}.`;
+  return `${events}. The Flexprice wallet holds ${w.balance} credits${read}; the local ledger is the gate.`;
+}
 
 export function Dashboard() {
   const { snap, go } = useUi();
@@ -118,7 +130,7 @@ export function Dashboard() {
           </dl>
           <p className="muted small">
             Costs: enrich {snap.credits.costs.enrich}, draft {snap.credits.costs.draft}, send {snap.credits.costs.send} credits.{' '}
-            {snap.mode.flexprice ? 'Events are mirrored to Flexprice.' : 'Metered on the local ledger. Set FLEXPRICE_API_KEY to mirror events to Flexprice.'}
+            {billingLine(snap.credits.wallet)}
           </p>
         </Section>
         <Section title="Credit ledger" aside={<span className="tag">{snap.credits.balance} left</span>}>

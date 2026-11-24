@@ -207,6 +207,11 @@ export function App() {
             <div className={`credits ${snap.credits.gated ? 'gated' : ''}`}>
               <span className="credits-n">{snap.credits.balance}</span>
               <span className="credits-l">{snap.credits.balance === 1 ? 'credit' : 'credits'}</span>
+              {snap.credits.wallet.mode === 'source' && snap.credits.wallet.connected && (
+                <span className="tag" title="The balance is read from the Flexprice wallet">
+                  Flexprice
+                </span>
+              )}
               {snap.credits.gated && <span className="gate-note">Gate closed. Work is on hold.</span>}
               <button type="button" className="btn small" onClick={() => void act('/credits/topup', { amount: 50 })}>
                 Top up 50

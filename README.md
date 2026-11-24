@@ -33,6 +33,7 @@ Other commands:
 - [System design and architecture](docs/ARCHITECTURE.md): data model, reasoning loops, graph ontology and queries, the agent team, integrated services.
 - [Receipts in a Band room](docs/BAND.md): the crew, who talks to whom, one flow end to end, setup.
 - [Demo video script](docs/DEMO_SCRIPT.md): a 2 to 3 minute walkthrough, beat by beat.
+- [The business case](docs/PITCH.md): the problem, the buyer, pricing, and what is hard to copy.
 
 ## The idea in one object
 
@@ -159,6 +160,8 @@ Demo controls act on the outside world only. The agents find out the same way th
 
 Beats 1, 6 and 7 carry the pitch. If time is short, show those three plus approval.
 
+**The guided demo plays this script by itself.** Open Demo controls and press **Play the guided demo**, or open `http://localhost:8787/?tour=1`. It resets the data, drives the real app through every beat with the narration on screen, and takes about two and a half minutes. Nothing in it is faked: each step calls the same actions a person would and waits for the real pipeline. Start a screen recorder first and the video records itself.
+
 The **Graph** screen can also carry beats 5 to 8 on its own. Pick a lead and it walks that lead's real records as an animated, step-by-step path: the page, the receipt, fit, freshness, the contact, the draft, the Skeptic re-opening each source, and the human gate. Vectorly shows a claim being struck, Fathom Works a draft being blocked, and Kestrel Systems a lead being held back before any credits are spent. Use the arrow keys to step, `R` to replay and `Space` to play or pause. The animation follows the system's reduced-motion setting until you press Play or turn Motion on.
 
 ## Configuration
@@ -171,7 +174,10 @@ Copy [.env.example](.env.example) to `.env`. Everything is optional.
 | `GROQ_API_KEY` | Uses Groq for the Planner and Writer; defaults to `openai/gpt-oss-20b`. Set `RECEIPTS_LLM_PROVIDER=anthropic` to override. |
 | `MOSS_PROJECT_ID`, `MOSS_PROJECT_KEY` | Enables `GET /api/search?q=...`, hybrid semantic search over existing receipts. Moss ranks evidence; SQLite remains the source of truth. |
 | `RECEIPTS_SOURCE=live` | Search and read the public web instead of the seeded world. Needs the key above. |
-| `FLEXPRICE_API_KEY`, `FLEXPRICE_CUSTOMER_ID` | Mirror metered events (enrich, draft, send) to Flexprice. |
+| `RECEIPTS_LIVE_MAX_SEARCHES`, `RECEIPTS_LIVE_MAX_PAGES` | Live web mode: how many searches to run and pages to read per pass. Defaults 6 and 12, which kept a pass between $0.33 and $0.54 in model calls when we ran it. |
+| `FLEXPRICE_API_KEY`, `FLEXPRICE_CUSTOMER_ID` | Meter usage (enrich, draft, send, graph query) to Flexprice and show the customer's credit wallet. |
+| `FLEXPRICE_WALLET=source` | Make the Flexprice wallet the source of the credit balance. Default `mirror`: the wallet is shown and the local ledger gates. |
+| `FLEXPRICE_BASE_URL`, `FLEXPRICE_WALLET_ID` | The API host for your Flexprice region, and optionally one wallet to pin instead of finding or creating it. |
 | `BAND_API_KEY`, `BAND_CHAT_ID` | Join a Band room as the Receipts Orchestrator agent. |
 | `BAND_KEY_PLANNER` ... `BAND_KEY_ANALYST` | Optional: one Band agent key per role (`PLANNER`, `RESEARCHER`, `ENRICHER`, `WRITER`, `SKEPTIC`, `SECURITY`, `ANALYST`), so each role speaks and is mentioned as itself. |
 | `BAND_HUMAN_HANDLE` | The person in the room who decides. Defaults to the room owner. |
@@ -191,6 +197,17 @@ Set `BAND_API_KEY` and `BAND_CHAT_ID`, and optionally one `BAND_KEY_<ROLE>` per 
 
 The crew, a full flow, setup steps and what has been tested are in [docs/BAND.md](docs/BAND.md).
 
+## Flexprice
+
+Credits are the unit of billing: enrich 5, draft 2, send 1. Research and the decision not to contact are free.
+
+- **Every metered operation is a Flexprice event** (`receipts.enrich`, `receipts.draft`, `receipts.send`, `receipts.graph_query`), sent to `POST /v1/events` with the credits it cost.
+- **The balance can come from the Flexprice wallet.** On start Receipts finds the customer by its external id and its active prepaid wallet, creating both on first use, and reads the real-time balance. With `FLEXPRICE_WALLET=source` that number is the credit balance: the local ledger is corrected to it, so a top-up made in Flexprice opens the credit gate in Receipts and held work continues by itself.
+- **A top-up in Receipts is a wallet top-up**, sent with an idempotency key.
+- **The gate never waits on the network.** It decides on the local ledger, which follows the wallet. If Flexprice is unreachable the app says so on the dashboard and keeps running on the ledger.
+
+To set it up: create an API key in Flexprice and set `FLEXPRICE_API_KEY`, choose any id for `FLEXPRICE_CUSTOMER_ID`, and set `FLEXPRICE_BASE_URL` to your region (for example `https://us.api.flexprice.io`). For usage to draw the wallet down inside Flexprice, add a meter that sums the `credits` property of the `receipts.*` events, price it on a plan, and subscribe the customer to it. Flexprice has no call that debits a wallet by hand, so without that plan the wallet only moves on top-ups; leave `FLEXPRICE_WALLET` on `mirror` in that case.
+
 ## What is real and what is simulated
 
 Real, and covered by tests:
@@ -204,7 +221,7 @@ Simulated, on purpose:
 
 - **Email and LinkedIn delivery.** Approving a draft logs the send. Nothing leaves the machine.
 - **The demo world.** Fictional companies, served locally.
-- **Email guessing.** One pattern (`first.last@domain`), always labelled as a guess with no receipt.
+- **Email guessing.** One pattern (`first.last@domain`), always labelled as a guess with no receipt. The Enricher does look up whether the domain has a mail server, and a draft to a domain that takes no mail is blocked. That check says the domain accepts mail, not that the mailbox exists. The demo world lives on reserved `.example` domains, which are never looked up.
 
 ## Inbound replies
 
@@ -213,10 +230,13 @@ It only accepts replies to messages that were already sent. A reply advances the
 
 For a signed local demonstration, set `INBOUND_WEBHOOK_SECRET`. Requests must then include `x-receipts-signature: sha256=<HMAC-SHA256 of the raw JSON body>`; unsigned or mismatched requests are rejected. Source fetching also refuses non-HTTP URLs, credential-bearing URLs, private-network targets, and hostnames that resolve to private address space. Credential-shaped values are redacted from activity events and model prompts.
 
+Run against the real service:
+
+- **Model-backed agents and live web mode.** Run end to end with a real key against the public web: search, page reads, extraction with snippet validation, a cited draft, the Skeptic and the Security scan.
+
 Written but not yet exercised against the real service:
 
-- **Model-backed agents and live web mode.** The code paths typecheck and fall back cleanly, but have not been run with a key.
-- **Flexprice.** Events are posted to `POST /v1/events`; the local ledger remains the source of truth for the gate.
+- **Flexprice.** Built to its published API reference and tested against a stand-in for it: customer and wallet lookup, the real-time balance, top-ups, events, and outages. It has not yet been run against a real Flexprice account.
 - **Band.** Built to Band's documented Agent API and tested against a stand-in for it: mention handoffs, the blocking review, and a person approving in the room. It has not yet been run in a real Band room.
 
 ## Layout
@@ -228,7 +248,7 @@ server/
   agents/          Planner, Researcher, Enricher, Writer, Skeptic, Analyst, the orchestrator and the worker pool
   services/        Store, task runs and leases, delivery guard, ledger, activity stream, fetcher, snapshot, model client
   world/           The seeded demo world and its routes
-  integrations/    Flexprice and handoff webhook
+  integrations/    Band room, Flexprice wallet and events
 web/src/           React client: one view per screen
 test/              Rule tests, scheduler tests (concurrency, retries, leases, idempotency), send-gate tests, and the end-to-end pipeline test
 ```
