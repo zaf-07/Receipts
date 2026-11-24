@@ -23,6 +23,15 @@ export function DemoPanel({ onClose }: { onClose: () => void }) {
         </button>
       </header>
 
+      <div className="demo-script" aria-label="Suggested demo flow">
+        <strong>Fast judge flow</strong>
+        <ol>
+          <li>Open a lead in Review and inspect the receipt chips behind each factual sentence.</li>
+          <li>Take down one cited world page, then re-verify: the Skeptic strikes the unsupported sentence.</li>
+          <li>Approve a clean draft, then move the clock forward to show that expiring evidence returns a lead to Not yet.</li>
+        </ol>
+      </div>
+
       <div className="demo-grid">
         <div>
           <h4>Clock</h4>

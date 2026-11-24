@@ -2755,6 +2755,28 @@ kbd {
   margin: 14px 0 4px;
 }
 
+.demo-script {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--ai);
+  background: var(--ai-bg);
+}
+
+.demo-script strong {
+  font: 600 11px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.demo-script ol {
+  margin: 7px 0 0 20px;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
 .demo-grid {
   display: grid;
   grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);

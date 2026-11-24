@@ -49,14 +49,14 @@ export function Dashboard() {
       </header>
 
       <div className="hero-metric">
-        <div className="hero-n">{m.catch_rate == null ? 'n/a' : pct(m.catch_rate)}</div>
+        <div className="hero-n">{m.proof_rate == null ? 'n/a' : pct(m.proof_rate)}</div>
         <div>
-          <h2>Catch rate</h2>
+          <h2>Proof rate</h2>
           <p>
-            <b>{m.claims_struck}</b> of <b>{m.claims_drafted}</b> drafted claims were struck by the Skeptic before a human saw them.
+            <b>{m.messages_sent === 0 ? 'No messages sent yet' : `${m.messages_sent} approved message${m.messages_sent === 1 ? '' : 's'} carried only re-verified claims`}</b>.
           </p>
           <p className="muted small">
-            Proof rate of sent messages is not shown as a headline: failed claims are struck before sending, so it would always read near 100%.
+            A message counts only when every factual sentence has a receipt and the Skeptic passed it against the live source. Human approval is still required to send.
           </p>
         </div>
       </div>
@@ -80,6 +80,13 @@ export function Dashboard() {
           <span>Meetings booked</span>
           <strong>{m.meetings}</strong>
           <small>leads at Meeting Booked or later</small>
+        </div>
+        <div className="tile">
+          <span>Skeptic catch rate</span>
+          <strong>{pct(m.catch_rate)}</strong>
+          <small>
+            {m.claims_struck} of {m.claims_drafted} drafted claims struck before review
+          </small>
         </div>
         <div className="tile">
           <span>Approved and sent</span>

@@ -80,12 +80,17 @@ function buildCompetitors(): CompetitorView[] {
   });
 }
 
-/** The dashboard numbers. Catch rate is the headline: the share of drafted claims the Skeptic struck. */
+/** The dashboard numbers. Proof rate measures approved sends; catch rate shows the Skeptic's intervention. */
 export function buildMetrics(leads: LeadView[]): Metrics {
   const messages = listMessages();
   const claims = messages.flatMap((m) => m.sentences.filter((s) => s.kind === 'claim'));
   const struck = claims.filter((s) => s.status === 'struck').length;
-  const sent = messages.filter((m) => m.status === 'sent').length;
+  const sentMessages = messages.filter((m) => m.status === 'sent');
+  const sent = sentMessages.length;
+  const proved = sentMessages.filter((message) => {
+    const factualClaims = message.sentences.filter((sentence) => sentence.kind === 'claim');
+    return factualClaims.length > 0 && factualClaims.every((sentence) => sentence.status === 'ok' && sentence.receipt_ids.length > 0);
+  }).length;
   const reached = (lead: LeadView, stage: string) => lead.transitions.some((t) => t.to_stage === stage);
   const replies = leads.filter((l) => reached(l, 'Replied')).length;
 
@@ -123,6 +128,7 @@ export function buildMetrics(leads: LeadView[]): Metrics {
     claims_drafted: claims.length,
     claims_struck: struck,
     catch_rate: claims.length ? struck / claims.length : null,
+    proof_rate: sent ? proved / sent : null,
     declined: {
       not_yet: leads.filter((l) => l.state === 'not_yet').length,
       disqualified: leads.filter((l) => l.state === 'disqualified').length,

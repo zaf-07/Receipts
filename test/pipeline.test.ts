@@ -163,6 +163,7 @@ test('nothing sends without approval; approving moves the card to Contacted with
   assert.equal(lead(snap, 'Cobalt Ledger').stage, 'Matched');
   assert.equal(lead(snap, 'Cobalt Ledger').messages.filter((m) => m.status === 'rejected').length, 1);
   assert.equal(snap.metrics.messages_sent, 1);
+  assert.equal(snap.metrics.proof_rate, 1);
   await assert.rejects(api(`/messages/${quill.message!.id}/approve`, { reviewer: 'Tester' }), /cannot be approved/);
 });
 

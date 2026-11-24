@@ -294,6 +294,8 @@ export interface Metrics {
   claims_drafted: number;
   claims_struck: number;
   catch_rate: number | null;
+  /** Sent messages whose factual claims all passed the Skeptic's live re-verification. */
+  proof_rate: number | null;
   declined: { not_yet: number; disqualified: number };
   messages_sent: number;
   replies: number;
