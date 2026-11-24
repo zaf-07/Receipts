@@ -176,12 +176,22 @@ async function crawlSite(siteUrl: string): Promise<Site | null> {
 
 const pageNamed = (site: Site, slug: string) => site.pages.find((p) => p.url.replace(/\/$/, '').endsWith(`/${slug}`));
 
+/**
+ * Does this description share our product category? Keywords are compared word by word, because
+ * the model planner writes phrases ("usage-based billing") where the keyword planner writes single
+ * words, and a rival rarely repeats a whole phrase. Two distinct category words are required.
+ */
+export function sharesCategory(description: string, keywords: string[]): boolean {
+  const text = description.toLowerCase();
+  const words = new Set(keywords.flatMap((k) => k.toLowerCase().split(/[^a-z0-9-]+/)).filter((w) => w.length >= 5));
+  return [...words].filter((w) => text.includes(w)).length >= 2;
+}
+
 /** A site that sells in our category and publishes a price is a competitor, not a prospect. */
 function isCompetitor(site: Site, icp: IcpVersion): boolean {
   const about = pageNamed(site, 'about');
   if (!about || !pageNamed(site, 'pricing')) return false;
-  const text = mainText(about.html).toLowerCase();
-  return icp.fields.keywords.filter((k) => text.includes(k.toLowerCase())).length >= 2;
+  return sharesCategory(mainText(about.html), icp.fields.keywords);
 }
 
 function readCompetitor(site: Site, profile: Profile, tally: Tally): void {

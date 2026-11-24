@@ -7,6 +7,7 @@ import { freshness, scoreLead, tierFor } from '../server/domain/scoring';
 import { containsSnippet, htmlToText } from '../server/domain/text';
 import { ruleFacts, rulePeople, ruleSignals } from '../server/agents/extractor';
 import { unsupportedFigures, validateDraft } from '../server/agents/writer';
+import { sharesCategory } from '../server/agents/researcher';
 
 const DAY = 86_400_000;
 const NOW = new Date('2026-11-24T12:00:00Z');
@@ -206,4 +207,19 @@ test('a claim with no receipt, or with an invented figure, fails the format chec
 
   const smuggled = { ...ok, sentences: [...ok.sentences, { text: 'You also raised a $10 million bridge.', kind: 'connective' as const, receipt_ids: [], status: 'ok' as const }] };
   assert.match(validateDraft(smuggled, allowed)[0], /marked connective but states a fact/);
+});
+
+// ---------- competitors ----------
+
+test('a rival is recognised from single-word and from phrase keywords alike', () => {
+  const chargeline = 'Chargeline is a usage-based billing platform for SaaS companies.';
+  const tallybird = 'Tallybird is a metering and usage-based billing API for developer platforms.';
+  const prospect = 'Northbeam AI builds inference infrastructure that lets product teams ship language model features.';
+  const words = ['usage-based', 'billing', 'metering', 'infrastructure'];
+  const phrases = ['usage-based billing', 'metering', 'api monetization', 'credit limits', 'invoicing', 'pricing infrastructure'];
+  for (const keywords of [words, phrases]) {
+    assert.equal(sharesCategory(chargeline, keywords), true);
+    assert.equal(sharesCategory(tallybird, keywords), true);
+    assert.equal(sharesCategory(prospect, keywords), false, 'one shared word is not enough');
+  }
 });
