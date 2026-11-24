@@ -75,6 +75,8 @@ export interface Person {
   email_status: EmailStatus;
   mail_check: MailCheck;
   mail_note: string | null;
+  /** The person's LinkedIn profile, only when the company's own page links to it. Never constructed. */
+  linkedin_url: string | null;
   previous_companies: string[];
   confidence: number;
 }
@@ -152,6 +154,12 @@ export interface IcpFields {
   excluded_regions: string[];
   /** Product-category words, used to build searches and to recognise competitors. */
   keywords: string[];
+  /** The NAICS 2022 class each target industry lines up with. */
+  naics?: { industry: string; code: string; title: string }[];
+  /** The headcount bands restated as revenue, by a stated rule of thumb. A targeting criterion, not a company fact. */
+  revenue_bands?: Scored<string>[];
+  /** The seniority levels the target personas sit at. */
+  seniority?: Scored<string>[];
 }
 
 export interface Expansion {
@@ -161,6 +169,8 @@ export interface Expansion {
   industries: string[];
   headcount_bands: string[];
   status: 'proposed' | 'accepted' | 'dismissed';
+  /** A person changed the segment before accepting it. */
+  adjusted?: boolean;
 }
 
 export interface IcpVersion {

@@ -245,7 +245,16 @@ export function DraftBody({ message, lead, now }: { message: Message; lead: Lead
       <div className="draft-meta">
         <span>To</span>
         <b>
-          {lead.person?.name ?? 'No contact'} {lead.person?.email && <span className="mono">&lt;{lead.person.email}&gt;</span>}
+          {lead.person?.name ?? 'No contact'}{' '}
+          {message.channel === 'linkedin' ? (
+            lead.person?.linkedin_url ? (
+              <span className="mono">{lead.person.linkedin_url.replace(/^https?:\/\//, '')}</span>
+            ) : (
+              lead.person && <span className="muted small">no LinkedIn profile published, so this one is sent by hand</span>
+            )
+          ) : (
+            lead.person?.email && <span className="mono">&lt;{lead.person.email}&gt;</span>
+          )}
         </b>
         <span>Subject</span>
         <b>{message.subject}</b>

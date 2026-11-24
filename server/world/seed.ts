@@ -91,7 +91,7 @@ export const SEED_SITES: SeedSite[] = [
         kind: 'team',
         title: 'Leadership',
         body: people(
-          'Priya Raman, VP Engineering. Previously at Lumen Cloud and Hexaform. Email: priya.raman@northbeam.example',
+          'Priya Raman, VP Engineering. Previously at Lumen Cloud and Hexaform. Email: priya.raman@northbeam.example LinkedIn: https://linkedin.example/in/priya-raman',
           'Tom Becker, Head of Finance. Previously at Ardent Bank. Email: tom.becker@northbeam.example',
           'Elena Sokolova, Chief Executive Officer.',
         ),
@@ -137,7 +137,7 @@ export const SEED_SITES: SeedSite[] = [
         kind: 'team',
         title: 'Team',
         body: people(
-          'Marcus Oyelaran, Head of Platform. Previously at Gridline. Email: marcus.oyelaran@quillstack.example',
+          'Marcus Oyelaran, Head of Platform. Previously at Gridline. Email: marcus.oyelaran@quillstack.example LinkedIn: https://linkedin.example/in/marcus-oyelaran',
           'Sara Lindqvist, Chief Technology Officer.',
         ),
       },

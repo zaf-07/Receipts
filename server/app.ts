@@ -167,7 +167,10 @@ export function createApp() {
   api.post('/icp/expansions/:id', (req, res) => {
     const decision = text(req.body.decision);
     if (decision !== 'accepted' && decision !== 'dismissed' && decision !== 'proposed') throw new UserError('Unknown decision.');
-    decideExpansion(req.params.id, decision);
+    const list = (v: unknown) => (Array.isArray(v) ? v.map((x) => text(x, 40)).filter(Boolean).slice(0, 12) : undefined);
+    const industries = list(req.body.industries);
+    const bands = list(req.body.headcount_bands);
+    decideExpansion(req.params.id, decision, industries || bands ? { industries, headcount_bands: bands } : undefined);
     res.json({ ok: true });
   });
 

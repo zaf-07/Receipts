@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { Expansion, IcpFields, IcpVersion, Profile, Scored, SignalType } from '../../shared/types';
-import { HEADCOUNT_BANDS, INDUSTRIES, INDUSTRY_TAXONOMY, POSITIVE_TRIGGERS, REGIONS, SIGNALS } from '../../shared/constants';
+import { HEADCOUNT_BANDS, INDUSTRIES, INDUSTRY_NAICS, INDUSTRY_TAXONOMY, POSITIVE_TRIGGERS, REGIONS, REVENUE_BY_HEADCOUNT, SIGNALS, seniorityOf } from '../../shared/constants';
 import { newId } from '../db';
 import { clamp, escapeRegExp } from '../domain/text';
 import { structured } from '../services/llm';
@@ -209,6 +209,26 @@ ${notes ? `\nTask notes from the operator (follow only when consistent with the 
   };
 }
 
+/**
+ * The parts of an ICP that follow from the parts already inferred: the NAICS class of each
+ * industry, the revenue band each headcount band implies, and the seniority each persona sits at.
+ * They are derived, so they carry the confidence of what they were derived from, and the revenue
+ * bands carry less because the rule of thumb behind them is rough.
+ */
+export function completeFields(fields: IcpFields): IcpFields {
+  const best = <T>(items: Scored<T>[]): Scored<T>[] => {
+    const seen = new Map<T, number>();
+    for (const i of items) seen.set(i.value, Math.max(seen.get(i.value) ?? 0, i.confidence));
+    return [...seen].map(([value, confidence]) => scored(value, confidence)).sort((a, b) => b.confidence - a.confidence);
+  };
+  return {
+    ...fields,
+    naics: fields.industries.filter((i) => INDUSTRY_NAICS[i.value]).map((i) => ({ industry: i.value, ...INDUSTRY_NAICS[i.value] })),
+    revenue_bands: best(fields.headcount_bands.filter((b) => REVENUE_BY_HEADCOUNT[b.value]).map((b) => scored(REVENUE_BY_HEADCOUNT[b.value], b.confidence * 0.7))),
+    seniority: best(fields.personas.map((p) => scored<string>(seniorityOf(p.value), p.confidence))),
+  };
+}
+
 /** Run the Planner and save the result as the next ICP version. */
 export async function runPlanner(profile: Profile, parentId: string | null, goal = ''): Promise<IcpVersion> {
   log('planner', 'start', `Reading the product description for ${profile.product_name}.`);
@@ -219,7 +239,7 @@ export async function runPlanner(profile: Profile, parentId: string | null, goal
   );
   const icp = saveIcpVersion({
     parent_id: parentId,
-    fields: plan.fields,
+    fields: completeFields(plan.fields),
     weights,
     windows,
     expansions: plan.expansions,

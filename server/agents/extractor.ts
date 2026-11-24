@@ -33,6 +33,8 @@ export interface PersonHit {
   previous: string[];
   snippet: string;
   email_snippet: string | null;
+  /** A LinkedIn profile URL printed next to the person, when there is one. */
+  linkedin?: string | null;
 }
 
 /** Text of the page's main content, without navigation and footers. */
@@ -169,6 +171,23 @@ export function ruleFacts(text: string, company: string): FactHit[] {
 
 const PERSON_LINE = /^([A-Z][\w'-]+(?:\s+(?:de|van|von|der|[A-Z][\w'-]+))+),\s+([^.]+)\.(.*)$/;
 const EMAIL = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/;
+// linkedin.example is the reserved-domain stand-in the seeded world uses, so a demo never points at a real profile.
+const LINKEDIN = /https?:\/\/(?:[a-z]{2,3}\.)?linkedin\.(?:com|example)\/in\/[\w%-]+/i;
+
+/**
+ * A LinkedIn profile linked from the page that belongs to this person: the profile's slug has to
+ * carry both their first and last name. A profile is read off the page or left unknown. It is
+ * never built from a name.
+ */
+export function linkedinOnPage(name: string, html: string): string | null {
+  const words = name.toLowerCase().normalize('NFKD').replace(/[^a-z\s-]/g, '').split(/[\s-]+/).filter((w) => w.length > 1);
+  if (words.length < 2) return null;
+  for (const match of html.matchAll(new RegExp(LINKEDIN.source, 'gi'))) {
+    const slug = (match[0].split('/in/')[1] ?? '').toLowerCase();
+    if (slug.includes(words[0]) && slug.includes(words[words.length - 1])) return match[0];
+  }
+  return null;
+}
 
 /** Read a team page written as "Name, Title. Previously at X. Email: y". */
 export function rulePeople(text: string): PersonHit[] {
@@ -186,6 +205,7 @@ export function rulePeople(text: string): PersonHit[] {
       previous: prev ? prev.split(/,\s*|\s+and\s+/).map((x) => x.trim()).filter(Boolean) : [],
       snippet: line.trim(),
       email_snippet: email ? line.trim() : null,
+      linkedin: rest.match(LINKEDIN)?.[0] ?? null,
     });
   }
   return people;

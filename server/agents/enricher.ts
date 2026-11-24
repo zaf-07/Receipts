@@ -7,7 +7,7 @@ import { checkMailDomain } from '../services/deliverability';
 import { log } from '../services/activity';
 import { addReceipt, createPerson, getCompany, updateLead } from '../services/store';
 import { isWorldUrl } from '../world/world';
-import { llmReadPeople, mainText, rulePeople, type PersonHit } from './extractor';
+import { linkedinOnPage, llmReadPeople, mainText, rulePeople, type PersonHit } from './extractor';
 
 // The Enricher resolves one contact per active lead and records how sure it is.
 // It stops when the contact is resolved, or marked unverified at low confidence.
@@ -105,6 +105,8 @@ export async function enrichLead(lead: Lead, icp: IcpVersion): Promise<EnrichRes
   const onPage = hit.email != null && containsSnippet(page.text, hit.email);
   const email = onPage ? hit.email : guessEmail(hit.name, company.domain);
   const status = onPage ? 'verified' : 'guessed';
+  // The profile is taken only when the company's own page prints or links it for this person.
+  const linkedin = hit.linkedin ?? linkedinOnPage(hit.name, page.html);
   // One lookup the Enricher can do itself: does the domain take mail at all? It says nothing about the mailbox.
   const mail = await checkMailDomain(email);
   const dead = mail.check === 'no_mail_server';
@@ -118,6 +120,7 @@ export async function enrichLead(lead: Lead, icp: IcpVersion): Promise<EnrichRes
     email_status: status,
     mail_check: mail.check,
     mail_note: mail.note,
+    linkedin_url: linkedin,
     previous_companies: hit.previous,
     confidence,
   });
@@ -125,6 +128,9 @@ export async function enrichLead(lead: Lead, icp: IcpVersion): Promise<EnrichRes
   const base = { entity_type: 'person' as const, entity_id: person.id, source_url: page.url, signal_type: 'contact' as const, sign: 'positive' as const };
   addReceipt({ ...base, field: 'contact', claim: `${hit.name} is ${hit.title} at ${company.name}.`, snippet: hit.snippet, confidence: 0.85 });
   if (onPage) addReceipt({ ...base, field: 'email', claim: `${hit.name}'s published email is ${hit.email}.`, snippet: hit.email!, confidence: 0.9 });
+  if (linkedin) {
+    addReceipt({ ...base, field: 'linkedin', claim: `${hit.name}'s LinkedIn profile is ${linkedin}.`, snippet: containsSnippet(page.text, linkedin) ? linkedin : hit.snippet, confidence: 0.85 });
+  }
   for (const prev of hit.previous) {
     addReceipt({ ...base, field: 'previous_company', claim: `${hit.name} previously worked at ${prev}.`, snippet: hit.snippet, confidence: 0.8, data: { company: prev } });
   }

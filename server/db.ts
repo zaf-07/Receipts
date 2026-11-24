@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS persons (
   email_status TEXT NOT NULL,
   mail_check TEXT NOT NULL DEFAULT 'unchecked',
   mail_note TEXT,
+  linkedin_url TEXT,
   previous_companies TEXT NOT NULL DEFAULT '[]',
   confidence REAL NOT NULL,
   created_at TEXT NOT NULL
@@ -314,6 +315,7 @@ export function initDb(path: string): void {
     db.exec("ALTER TABLE persons ADD COLUMN mail_check TEXT NOT NULL DEFAULT 'unchecked'");
     db.exec('ALTER TABLE persons ADD COLUMN mail_note TEXT');
   }
+  if (!personColumns.some((c) => c.name === 'linkedin_url')) db.exec('ALTER TABLE persons ADD COLUMN linkedin_url TEXT');
   // Databases created before task runs existed: link each activity line to the task that produced it.
   const activityColumns = db.prepare('PRAGMA table_info(activity)').all() as { name: string }[];
   for (const column of ['task_id', 'run_id']) {

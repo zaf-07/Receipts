@@ -232,7 +232,7 @@ test('a rival is recognised from single-word and from phrase keywords alike', ()
 
 test('the security scan clears a clean draft and blocks links, leaks and a wrong recipient', () => {
   const company = { id: 'c_1', name: 'Acme', domain: 'acme.example', site_url: 'https://acme.example/', industry: null, headcount: null, region: null, hq: null, kind: 'prospect', differentiator: null } as Company;
-  const person = { id: 'p_1', company_id: 'c_1', name: 'Dana Whitfield', title: 'CRO', email: 'dana@acme.example', email_status: 'verified', mail_check: 'unchecked', mail_note: null, previous_companies: [], confidence: 0.9 } as Person;
+  const person = { id: 'p_1', company_id: 'c_1', name: 'Dana Whitfield', title: 'CRO', email: 'dana@acme.example', email_status: 'verified', mail_check: 'unchecked', mail_note: null, linkedin_url: null, previous_companies: [], confidence: 0.9 } as Person;
   const cited = [receipt('funding', 5, { source_url: 'https://news.acme.example/series-b' })];
   const draft = (...lines: string[]): Message =>
     ({

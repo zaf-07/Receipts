@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import type { IcpVersion, Profile, Scored } from '../../../shared/types';
-import { REGIONS, SIGNALS } from '../../../shared/constants';
+import type { Expansion, IcpVersion, Profile, Scored } from '../../../shared/types';
+import { HEADCOUNT_BANDS, INDUSTRIES, REGIONS, SIGNALS } from '../../../shared/constants';
 import { call, useUi } from '../api';
 import { Bar, Empty, Section, fmtDate, pct } from '../components';
 
@@ -20,6 +20,84 @@ function FieldRow<T extends string>({ label, items, render }: { label: string; i
         ))}
       </ul>
     </div>
+  );
+}
+
+/** A set of choices shown as toggles: the ones that are on are in the segment. */
+function Toggles({ label, all, on, onChange }: { label: string; all: string[]; on: string[]; onChange: (next: string[]) => void }) {
+  return (
+    <fieldset className="toggles">
+      <legend>{label}</legend>
+      {all.map((v) => (
+        <button key={v} type="button" className={on.includes(v) ? 'on' : ''} aria-pressed={on.includes(v)} onClick={() => onChange(on.includes(v) ? on.filter((x) => x !== v) : [...on, v])}>
+          {v}
+        </button>
+      ))}
+    </fieldset>
+  );
+}
+
+/** One adjacent segment. A person can accept it as proposed, change it and then accept it, or dismiss it. */
+function Segment({ x }: { x: Expansion }) {
+  const { act } = useUi();
+  const [editing, setEditing] = useState(false);
+  const [industries, setIndustries] = useState(x.industries);
+  const [bands, setBands] = useState(x.headcount_bands);
+  const decide = (decision: string, body: object = {}) => act(`/icp/expansions/${x.id}`, { decision, ...body });
+  return (
+    <li className={`expansion is-${x.status} ${editing ? 'is-editing' : ''}`}>
+      <div>
+        <strong>{x.name}</strong>
+        <p>{x.reasoning}</p>
+        <p className="segment-scope">
+          {x.industries.join(', ')} · {x.headcount_bands.join(', ')} people
+          {x.adjusted && <span className="tag">adjusted by you</span>}
+        </p>
+        {editing && (
+          <div className="segment-edit">
+            <Toggles label="Industries" all={INDUSTRIES} on={industries} onChange={setIndustries} />
+            <Toggles label="Company size" all={HEADCOUNT_BANDS} on={bands} onChange={setBands} />
+            <div className="row-actions">
+              <button
+                type="button"
+                className="btn small primary"
+                disabled={industries.length === 0 || bands.length === 0}
+                onClick={() => void decide('accepted', { industries, headcount_bands: bands }).then((ok) => ok && setEditing(false))}
+              >
+                Accept as adjusted
+              </button>
+              <button type="button" className="link" onClick={() => setEditing(false)}>
+                cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+      <div className="expansion-actions">
+        {x.status === 'proposed' ? (
+          !editing && (
+            <>
+              <button type="button" className="btn small primary" onClick={() => void decide('accepted')}>
+                Accept
+              </button>
+              <button type="button" className="btn small" onClick={() => setEditing(true)}>
+                Adjust
+              </button>
+              <button type="button" className="btn small" onClick={() => void decide('dismissed')}>
+                Dismiss
+              </button>
+            </>
+          )
+        ) : (
+          <>
+            <span className={`tag ${x.status === 'accepted' ? 'good' : ''}`}>{x.status}</span>
+            <button type="button" className="link" onClick={() => void decide('proposed')}>
+              undo
+            </button>
+          </>
+        )}
+      </div>
+    </li>
   );
 }
 
@@ -143,46 +221,37 @@ export function Intake() {
               >
                 <p className="rationale">{icp.rationale}</p>
                 <div className="icp-grid">
-                  <FieldRow label="Industries" items={icp.fields.industries} />
+                  <FieldRow
+                    label="Industries"
+                    items={icp.fields.industries}
+                    render={(v) => {
+                      const naics = icp.fields.naics?.find((n) => n.industry === v);
+                      return naics ? `${v} · NAICS ${naics.code}` : v;
+                    }}
+                  />
                   <FieldRow label="Headcount" items={icp.fields.headcount_bands} />
+                  {icp.fields.revenue_bands && <FieldRow label="Revenue (estimated)" items={icp.fields.revenue_bands} />}
                   <FieldRow label="Regions" items={icp.fields.regions} />
                   <FieldRow label="Personas" items={icp.fields.personas} />
+                  {icp.fields.seniority && <FieldRow label="Seniority" items={icp.fields.seniority} />}
                   <FieldRow label="Trigger events" items={icp.fields.trigger_events} render={(v) => SIGNALS[v].label} />
                 </div>
+                {icp.fields.revenue_bands && (
+                  <p className="muted small">
+                    Revenue is the headcount restated at about $200,000 per employee, so it is less certain than the headcount it comes from. It describes the target; a
+                    company only gets a revenue figure from a receipt.
+                  </p>
+                )}
                 {icp.fields.excluded_regions.length > 0 && (
                   <p className="muted small">Excluded: {icp.fields.excluded_regions.join(', ')}. Accounts there are disqualified with the source shown.</p>
                 )}
               </Section>
 
               <Section title="Adjacent segments">
-                <p className="muted small">Outside the core ICP, but plausible. Accepting one widens the fit score; dismissing one changes nothing.</p>
+                <p className="muted small">Outside the core ICP, but plausible. Accept one to widen the fit score, adjust it first if it is close but not right, or dismiss it and nothing changes.</p>
                 <ul className="expansions">
                   {icp.expansions.map((x) => (
-                    <li key={x.id} className={`expansion is-${x.status}`}>
-                      <div>
-                        <strong>{x.name}</strong>
-                        <p>{x.reasoning}</p>
-                      </div>
-                      <div className="expansion-actions">
-                        {x.status === 'proposed' ? (
-                          <>
-                            <button type="button" className="btn small primary" onClick={() => void act(`/icp/expansions/${x.id}`, { decision: 'accepted' })}>
-                              Accept
-                            </button>
-                            <button type="button" className="btn small" onClick={() => void act(`/icp/expansions/${x.id}`, { decision: 'dismissed' })}>
-                              Dismiss
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <span className={`tag ${x.status === 'accepted' ? 'good' : ''}`}>{x.status}</span>
-                            <button type="button" className="link" onClick={() => void act(`/icp/expansions/${x.id}`, { decision: 'proposed' })}>
-                              undo
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </li>
+                    <Segment key={`${x.id}-${x.status}`} x={x} />
                   ))}
                 </ul>
               </Section>

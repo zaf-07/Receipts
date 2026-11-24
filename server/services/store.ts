@@ -216,11 +216,11 @@ export function getPerson(id: string | null): Person | null {
   return row ? toPerson(row) : null;
 }
 
-export function createPerson(input: Omit<Person, 'id' | 'mail_check' | 'mail_note'> & Partial<Pick<Person, 'mail_check' | 'mail_note'>>): Person {
+export function createPerson(input: Omit<Person, 'id' | 'mail_check' | 'mail_note' | 'linkedin_url'> & Partial<Pick<Person, 'mail_check' | 'mail_note' | 'linkedin_url'>>): Person {
   const id = newId('p');
   run(
-    `INSERT INTO persons (id, company_id, name, title, email, email_status, mail_check, mail_note, previous_companies, confidence, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO persons (id, company_id, name, title, email, email_status, mail_check, mail_note, linkedin_url, previous_companies, confidence, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     id,
     input.company_id,
     input.name,
@@ -229,6 +229,7 @@ export function createPerson(input: Omit<Person, 'id' | 'mail_check' | 'mail_not
     input.email_status,
     input.mail_check ?? 'unchecked',
     input.mail_note ?? null,
+    input.linkedin_url ?? null,
     input.previous_companies,
     input.confidence,
     nowIso(),

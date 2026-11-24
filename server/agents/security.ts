@@ -98,6 +98,11 @@ export function scanDraft(message: Message, ctx: ScanContext): Finding[] {
     if (ctx.person.mail_check === 'no_mail_server') block('undeliverable_recipient', ctx.person.mail_note ?? `${domain} publishes no mail server.`);
   }
 
+  // A LinkedIn note needs somewhere to go. Without a published profile a person has to find it by hand.
+  if (message.channel === 'linkedin' && ctx.person && !ctx.person.linkedin_url) {
+    warn('no_linkedin_profile', "The company's pages link no LinkedIn profile for this person, and none was guessed.");
+  }
+
   // Sources behind the claims.
   for (const r of ctx.cited) {
     if (!/^https?:\/\//i.test(r.source_url)) block('bad_source', `A cited source is not a web address: ${r.source_url}`);

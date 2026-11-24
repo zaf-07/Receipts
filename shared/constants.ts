@@ -47,7 +47,52 @@ export const INDUSTRY_TAXONOMY: Record<string, string[]> = {
 };
 export const INDUSTRIES = Object.keys(INDUSTRY_TAXONOMY);
 
+/**
+ * The closest NAICS 2022 class for each industry label, so an ICP lines up with the codes that
+ * company databases and filings use. It classifies the label, not any one company.
+ */
+export const INDUSTRY_NAICS: Record<string, { code: string; title: string }> = {
+  'AI / ML': { code: '518210', title: 'Computing Infrastructure Providers, Data Processing, Web Hosting, and Related Services' },
+  'Developer Tools': { code: '513210', title: 'Software Publishers' },
+  SaaS: { code: '513210', title: 'Software Publishers' },
+  Fintech: { code: '522320', title: 'Financial Transactions Processing, Reserve, and Clearinghouse Activities' },
+  'E-commerce': { code: '44-45', title: 'Retail Trade' },
+  Healthcare: { code: '62', title: 'Health Care and Social Assistance' },
+  Cybersecurity: { code: '541512', title: 'Computer Systems Design Services' },
+  Logistics: { code: '48-49', title: 'Transportation and Warehousing' },
+  Media: { code: '516210', title: 'Media Streaming Distribution Services, Social Networks, and Other Media Networks and Content Providers' },
+  Education: { code: '61', title: 'Educational Services' },
+};
+
 export const HEADCOUNT_BANDS = ['1-10', '11-50', '51-200', '201-500', '501-1000', '1001-5000', '5000+'];
+
+/**
+ * A revenue band for each headcount band, at roughly $200,000 of revenue per employee. This is a
+ * rule of thumb for software companies, used to state the ICP in revenue terms. It is a targeting
+ * criterion, never a fact about a company: a company only gets a revenue figure from a receipt.
+ */
+export const REVENUE_BY_HEADCOUNT: Record<string, string> = {
+  '1-10': 'Under $2M',
+  '11-50': '$2M to $10M',
+  '51-200': '$10M to $40M',
+  '201-500': '$40M to $100M',
+  '501-1000': '$100M to $200M',
+  '1001-5000': '$200M to $1B',
+  '5000+': 'Over $1B',
+};
+
+export const SENIORITY_LEVELS = ['C-level', 'VP', 'Head of function', 'Director', 'Manager', 'Individual contributor'] as const;
+
+/** The seniority level a job title implies. */
+export function seniorityOf(title: string): (typeof SENIORITY_LEVELS)[number] {
+  const t = title.toLowerCase();
+  if (/\b(vp|svp|evp|vice president)\b/.test(t)) return 'VP';
+  if (/\bchief\b|\bc[a-z]o\b|\bfounder\b|\bpresident\b|\bowner\b/.test(t)) return 'C-level';
+  if (/\bhead\b/.test(t)) return 'Head of function';
+  if (/\bdirector\b/.test(t)) return 'Director';
+  if (/\b(manager|lead)\b/.test(t)) return 'Manager';
+  return 'Individual contributor';
+}
 
 export function bandFor(headcount: number | null | undefined): string | null {
   if (headcount == null || !Number.isFinite(headcount)) return null;

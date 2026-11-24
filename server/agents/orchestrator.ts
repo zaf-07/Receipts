@@ -1,5 +1,5 @@
 import type { AgentName, Lead, Message, PipelineRun, Profile, Receipt, Stage, TaskRun } from '../../shared/types';
-import { STAGES } from '../../shared/constants';
+import { HEADCOUNT_BANDS, INDUSTRIES, STAGES } from '../../shared/constants';
 import { advanceClock, now } from '../clock';
 import { config } from '../config';
 import { wipe } from '../db';
@@ -618,15 +618,28 @@ export function startGoal(goal: string) {
 }
 
 /** Accept or dismiss an adjacent segment. Accepted segments widen the fit score. */
-export function decideExpansion(expansionId: string, decision: 'accepted' | 'dismissed' | 'proposed'): void {
+/**
+ * A person accepts, dismisses or reopens an adjacent segment. They can also adjust it first: narrow
+ * or widen its industries and company sizes, and accept the segment as they changed it.
+ */
+export function decideExpansion(
+  expansionId: string,
+  decision: 'accepted' | 'dismissed' | 'proposed',
+  adjust?: { industries?: string[]; headcount_bands?: string[] },
+): void {
   const icp = currentIcp();
   if (!icp) throw new UserError('There is no ICP yet.');
   const target = icp.expansions.find((e) => e.id === expansionId);
   if (!target) throw new UserError('That segment is not part of the current ICP.');
-  updateIcpExpansions(icp.id, icp.expansions.map((e) => (e.id === expansionId ? { ...e, status: decision } : e)));
-  log('human', 'info', `${decision === 'accepted' ? 'Accepted' : decision === 'dismissed' ? 'Dismissed' : 'Reopened'} the adjacent segment "${target.name}".`, { ref: icp.id });
+  const industries = adjust?.industries?.filter((i) => INDUSTRIES.includes(i));
+  const bands = adjust?.headcount_bands?.filter((b) => HEADCOUNT_BANDS.includes(b));
+  const adjusted = decision === 'accepted' && Boolean(industries || bands);
+  if (adjusted && (industries?.length === 0 || bands?.length === 0)) throw new UserError('Keep at least one industry and one company size in the segment.');
+  const next = adjusted ? { ...target, industries: industries ?? target.industries, headcount_bands: bands ?? target.headcount_bands, adjusted: true } : target;
+  updateIcpExpansions(icp.id, icp.expansions.map((e) => (e.id === expansionId ? { ...next, status: decision } : e)));
+  log('human', 'info', `${adjusted ? 'Adjusted and accepted' : decision === 'accepted' ? 'Accepted' : decision === 'dismissed' ? 'Dismissed' : 'Reopened'} the adjacent segment "${target.name}".`, { ref: icp.id });
   const moved = recomputeAll();
-  if (decision === 'accepted') log('planner', 'info', `Fit widened to include ${target.industries.join(', ')}. Leads rescored${moved ? `, ${moved} changed state` : ''}.`);
+  if (decision === 'accepted') log('planner', 'info', `Fit widened to include ${next.industries.join(', ')} at ${next.headcount_bands.join(', ')} people. Leads rescored${moved ? `, ${moved} changed state` : ''}.`);
   changed();
 }
 
