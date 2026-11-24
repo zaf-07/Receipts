@@ -24,8 +24,18 @@ export const config = {
     baseUrl: env.FLEXPRICE_BASE_URL ?? 'https://api.cloud.flexprice.io',
     customerId: env.FLEXPRICE_CUSTOMER_ID ?? '',
   },
-  /** Optional: every agent handoff is POSTed here as JSON (for Band or any other orchestrator). */
+  /** Legacy generic handoff sink. Prefer the first-class Band configuration below. */
   agentWebhook: env.AGENT_EVENTS_WEBHOOK_URL ?? '',
+  /**
+   * Band Agent API credentials. A single Receipts orchestrator identity writes the
+   * visible activity stream into a Band room; each entry keeps the originating
+   * Receipts role in its metadata.
+   */
+  band: {
+    apiKey: env.BAND_API_KEY ?? '',
+    chatId: env.BAND_CHAT_ID ?? '',
+    baseUrl: (env.BAND_API_BASE_URL ?? 'https://app.band.ai/api/v1').replace(/\/$/, ''),
+  },
 };
 
 export function llmEnabled(): boolean {

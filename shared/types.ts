@@ -292,7 +292,7 @@ export interface WorldPageView {
 export interface Snapshot {
   now: string;
   clock_offset_days: number;
-  mode: { llm: boolean; model: string; source: 'world' | 'live'; flexprice: boolean; webhook: boolean };
+  mode: { llm: boolean; model: string; source: 'world' | 'live'; flexprice: boolean; webhook: boolean; band: boolean };
   running: string | null;
   profile: Profile | null;
   icp: IcpVersion | null;

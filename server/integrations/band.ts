@@ -16,26 +16,71 @@ export const AGENT_ROLES = [
   { role: 'analyst', job: 'Reads outcomes, reweights signal types, proposes the next ICP version', stops_when: 'A diff is ready for review', hands_off_to: 'planner' },
 ] as const;
 
+export function bandEnabled(): boolean {
+  return Boolean(config.band.apiKey && config.band.chatId);
+}
+
 /**
- * Forward a handoff to an external orchestrator. Off unless AGENT_EVENTS_WEBHOOK_URL is set.
- * The Band API has not been tested against; this posts a plain JSON event and never blocks the pipeline.
+ * Write a Receipts handoff to Band's Agent API as a room event.
+ *
+ * Events are deliberately used instead of text messages: Band text messages must
+ * mention a concrete room participant and route work to that participant. Receipts
+ * remains the executor of its deterministic pipeline, while the Band room gives the
+ * human an auditable, real-time view of each specialised role and its blocks.
  */
-export function forwardHandoff(entry: ActivityEntry): void {
-  if (!config.agentWebhook) return;
-  void fetch(config.agentWebhook, {
+export function forwardToBand(entry: ActivityEntry): void {
+  if (!bandEnabled()) return;
+
+  const messageType = entry.kind === 'block' ? 'error' : 'task';
+  void fetch(`${config.band.baseUrl}/agent/chats/${encodeURIComponent(config.band.chatId)}/events`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': config.band.apiKey,
+    },
     body: JSON.stringify({
-      source: 'receipts',
-      type: entry.kind === 'block' ? 'agent.blocked' : 'agent.handoff',
-      agent: entry.agent,
-      message: entry.message,
-      lead_id: entry.lead_id,
-      ref: entry.ref,
-      at: entry.at,
+      event: {
+        content: `[${entry.agent}] ${entry.message}`,
+        message_type: messageType,
+        metadata: {
+          source: 'receipts',
+          type: entry.kind === 'block' ? 'agent.blocked' : 'agent.handoff',
+          agent: entry.agent,
+          activity_id: entry.id,
+          lead_id: entry.lead_id,
+          ref: entry.ref,
+          occurred_at: entry.at,
+        },
+      },
     }),
     signal: AbortSignal.timeout(4000),
   }).catch(() => {
-    // An orchestrator being down must not stop the pipeline.
+    // Band is observability, never a dependency for the prospecting workflow.
   });
+}
+
+/**
+ * Forward a handoff to an external orchestrator. Off unless AGENT_EVENTS_WEBHOOK_URL is set.
+ * Kept for generic non-Band integrations and backwards compatibility.
+ */
+export function forwardHandoff(entry: ActivityEntry): void {
+  forwardToBand(entry);
+  if (config.agentWebhook) {
+    void fetch(config.agentWebhook, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        source: 'receipts',
+        type: entry.kind === 'block' ? 'agent.blocked' : 'agent.handoff',
+        agent: entry.agent,
+        message: entry.message,
+        lead_id: entry.lead_id,
+        ref: entry.ref,
+        at: entry.at,
+      }),
+      signal: AbortSignal.timeout(4000),
+    }).catch(() => {
+      // An orchestrator being down must not stop the pipeline.
+    });
+  }
 }

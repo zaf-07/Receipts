@@ -32,7 +32,7 @@ import {
 } from './agents/orchestrator';
 import { setPageStatus, seedWorld, worldRouter, worldSeeded } from './world/world';
 import { EXAMPLE_PROFILE } from './world/seed';
-import { AGENT_ROLES } from './integrations/band';
+import { AGENT_ROLES, bandEnabled } from './integrations/band';
 
 const text = (v: unknown, max = 4000) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 const list = (v: unknown) =>
@@ -57,6 +57,13 @@ export function createApp() {
   api.get('/snapshot', (_req, res) => res.json(buildSnapshot(currentRun())));
   api.get('/example', (_req, res) => res.json(EXAMPLE_PROFILE));
   api.get('/roles', (_req, res) => res.json(AGENT_ROLES));
+  api.get('/band/status', (_req, res) =>
+    res.json({
+      configured: bandEnabled(),
+      mode: bandEnabled() ? 'Band Agent API room events' : 'local activity feed only',
+      roles: AGENT_ROLES,
+    }),
+  );
 
   api.get('/events', (req, res) => {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });

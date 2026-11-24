@@ -119,7 +119,15 @@ Copy [.env.example](.env.example) to `.env`. Everything is optional.
 | `ANTHROPIC_API_KEY` | Model-backed Planner and Writer. Every model call has a deterministic fallback, so a failed or malformed response never stops the pipeline. |
 | `RECEIPTS_SOURCE=live` | Search and read the public web instead of the seeded world. Needs the key above. |
 | `FLEXPRICE_API_KEY`, `FLEXPRICE_CUSTOMER_ID` | Mirror metered events (enrich, draft, send) to Flexprice. |
-| `AGENT_EVENTS_WEBHOOK_URL` | POST every agent handoff as JSON to an external orchestrator. |
+| `BAND_API_KEY`, `BAND_CHAT_ID` | Send handoff and block events to a Band room as the Receipts Orchestrator remote agent. |
+| `BAND_API_BASE_URL` | Band API base URL; defaults to `https://app.band.ai/api/v1`. |
+| `AGENT_EVENTS_WEBHOOK_URL` | Additionally POST every agent handoff as JSON to a generic external orchestrator. |
+
+## Band Desktop
+
+Receipts is ready to join a Band room without making Band a dependency of the product flow. Create a **Remote Agent** named `Receipts Orchestrator` in Band, add it to the hackathon room, and put its one-time API key and the room ID in `.env` as `BAND_API_KEY` and `BAND_CHAT_ID`. `GET /api/band/status` confirms the connection is configured without exposing credentials.
+
+On every handoff or block, Receipts writes a first-class Band room event with the originating role (`planner`, `researcher`, `enricher`, `writer`, `skeptic`, `human`, or `analyst`), the lead/reference where available, and an event time. Band remains the shared observability and human-collaboration surface; the product pipeline stays resilient if Band is offline. This is intentional: Band text messages route work only with concrete participant @mentions, while Receipts itself executes the pipeline.
 
 ## What is real and what is simulated
 
@@ -140,7 +148,7 @@ Written but not yet exercised against the real service:
 
 - **Model-backed agents and live web mode.** The code paths typecheck and fall back cleanly, but have not been run with a key.
 - **Flexprice.** Events are posted to `POST /v1/events`; the local ledger remains the source of truth for the gate.
-- **Band.** Agent roles and the handoff stream are exposed (`GET /api/roles`, the webhook above) and ready to map. No Band API is called.
+- **Band.** A configured Band Agent API integration writes each handoff and block to the selected Band room; role metadata preserves the seven-agent story. `GET /api/band/status` shows whether it is configured.
 
 ## Layout
 

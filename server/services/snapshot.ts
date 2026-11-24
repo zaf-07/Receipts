@@ -19,6 +19,7 @@ import { getSetting, setSetting } from '../db';
 import { isExpired, isLive, isTrigger } from '../domain/state';
 import { firstName, normalize } from '../domain/text';
 import { flexpriceEnabled } from '../integrations/flexprice';
+import { bandEnabled } from '../integrations/band';
 import { unsupportedFigures, warmIntro } from '../agents/writer';
 import { recentActivity } from './activity';
 import { balance, countOps, recentLedger } from './ledger';
@@ -132,7 +133,7 @@ export function buildSnapshot(running: string | null): Snapshot {
   return {
     now: now().toISOString(),
     clock_offset_days: clockOffsetDays(),
-    mode: { llm: llmEnabled(), model: config.model, source: config.source, flexprice: flexpriceEnabled(), webhook: Boolean(config.agentWebhook) },
+    mode: { llm: llmEnabled(), model: config.model, source: config.source, flexprice: flexpriceEnabled(), webhook: Boolean(config.agentWebhook), band: bandEnabled() },
     running,
     profile: getProfile(),
     icp: currentIcp(),
