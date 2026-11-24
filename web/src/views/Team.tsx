@@ -41,7 +41,6 @@ export const KIND_LABEL: Record<TaskKind, string> = {
   manual: 'Manual',
 };
 
-const AGENTS: AgentName[] = ['planner', 'researcher', 'enricher', 'writer', 'skeptic', 'security', 'analyst', 'human'];
 const CAP = 10;
 
 /** Every receipt in the snapshot by id, so a task's input and output ids can be shown as chips. */
@@ -296,7 +295,6 @@ export function Team() {
   const [agent, setAgent] = useState<AgentName | null>(null);
   const [expanded, setExpanded] = useState<TaskStatus | null>(null);
   const [title, setTitle] = useState('');
-  const [assignee, setAssignee] = useState<AgentName>('researcher');
   const index = useMemo(() => receiptIndex(snap), [snap]);
 
   const inRun = snap.tasks.filter((t) => runId === 'all' || t.run_id === runId);
@@ -306,25 +304,30 @@ export function Team() {
   const order = (status: TaskStatus) => (a: TaskRun, b: TaskRun) =>
     status === 'done' || status === 'failed' ? (b.finished_at ?? b.updated_at).localeCompare(a.finished_at ?? a.updated_at) : b.priority - a.priority || a.created_at.localeCompare(b.created_at);
 
-  async function addTask(event: React.FormEvent) {
+  async function startGoal(event: React.FormEvent) {
     event.preventDefault();
     if (!title.trim()) return;
-    if (await act('/tasks', { title, agent: assignee })) setTitle('');
+    if (await act('/goals', { goal: title })) setTitle('');
   }
 
   // The failed lane appears only when something has failed, so the board fits without scrolling.
   const lanes = LANES.filter((l) => l.id !== 'failed' || visible.some((t) => t.status === 'failed'));
   const count = (who: AgentName, status: TaskStatus) => inRun.filter((t) => t.agent === who && t.status === status).length;
+  const working = inRun.filter((t) => t.status === 'queued' || t.status === 'running').length;
+  const needsYou = inRun.filter((t) => t.status === 'review' || t.status === 'blocked' || t.status === 'failed').length;
+  const complete = inRun.filter((t) => t.status === 'done').length;
+  const suggestions = [
+    'Find SaaS companies with fresh pricing changes and prepare verified outreach.',
+    'Find cybersecurity companies hiring security leaders. Exclude layoffs and hiring freezes.',
+    'Research B2B fintech companies with new funding or billing-platform signals.',
+  ];
 
   return (
     <div className="page team-page">
       <header className="page-head">
         <div>
           <h1>Agent team</h1>
-          <p>
-            One orchestrator plans and assigns. Eight roles do scoped work in parallel and hand it on. Every task is leased, retried if its worker stops, and
-            settled exactly once.
-          </p>
+          <p>Describe the result you want. The team plans the work, checks the evidence, and brings only safe drafts back to you.</p>
         </div>
         <div className="head-actions">
           <label className="run-pick">
@@ -338,32 +341,48 @@ export function Team() {
               ))}
             </select>
           </label>
-          <span className="muted small">
-            {snap.team.concurrency} workers at once · {snap.team.lease_seconds}s leases · {snap.running ?? 'idle'}
-          </span>
-          <span className="muted small">
-            {snap.team.usage.calls === 0
-              ? 'No model calls yet'
-              : `${snap.team.usage.calls} model calls · ${((snap.team.usage.input_tokens + snap.team.usage.output_tokens) / 1000).toFixed(1)}k tokens${snap.team.usage.cost_usd == null ? '' : ` · ${snap.team.usage.cost_usd.toFixed(3)}`}`}
-          </span>
-          <span className={`band-status ${snap.team.band.connected ? 'on' : ''}`} title={snap.team.band.last_error ?? ''}>
-            {snap.team.band.connected
-              ? `Band room: ${snap.team.band.agents.length} agents${snap.team.band.human ? `, decisions to @${snap.team.band.human}` : ''} · ${snap.team.band.messages_sent} sent, ${snap.team.band.messages_received} received`
-              : snap.team.band.configured
-                ? `Band room not connected${snap.team.band.last_error ? `: ${snap.team.band.last_error}` : ''}`
-                : 'Band room: not configured (set BAND_API_KEY and BAND_CHAT_ID)'}
-          </span>
         </div>
       </header>
 
+      <section className="team-command" aria-label="Start a new agent goal">
+        <div className="team-command-copy">
+          <span className="eyebrow">Start a goal</span>
+          <h2>What would you like the team to accomplish?</h2>
+          <p>You set the outcome. The orchestrator assigns the specialists and keeps every claim tied to evidence.</p>
+        </div>
+        <form className="task-new" onSubmit={(event) => void startGoal(event)}>
+          <label>
+            Desired outcome
+            <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Find 10 SaaS companies with recent pricing changes and prepare verified outreach" />
+          </label>
+          <button type="submit" className="btn primary">Start agents</button>
+        </form>
+        <div className="goal-suggestions" aria-label="Goal examples">
+          <span>Try an example:</span>
+          {suggestions.map((suggestion) => <button type="button" key={suggestion} onClick={() => setTitle(suggestion)}>{suggestion}</button>)}
+        </div>
+      </section>
+
+      <section className="team-overview" aria-label="Team status">
+        <div className={`overview-stat ${snap.running ? 'is-working' : ''}`}>
+          <span>Team status</span><strong>{snap.running ?? (working ? 'Working through tasks' : 'Ready when you are')}</strong>
+          <small>{working ? `${working} task${working === 1 ? '' : 's'} in progress` : 'Start with a plain-language goal above.'}</small>
+        </div>
+        <div className={`overview-stat ${needsYou ? 'needs-action' : ''}`}>
+          <span>Needs attention</span><strong>{needsYou}</strong><small>{needsYou ? 'Review, blocked, or failed tasks.' : 'Nothing needs a decision right now.'}</small>
+        </div>
+        <div className="overview-stat"><span>Completed</span><strong>{complete}</strong><small>Evidence checks and work steps finished.</small></div>
+        <div className="team-meta"><span>{snap.team.concurrency} workers in parallel</span><span>{snap.team.usage.calls ? `${snap.team.usage.calls} model calls` : 'Evidence-first mode'}</span>{snap.team.band.connected && <span className="band-status on">Band connected</span>}</div>
+      </section>
+
       {snap.tasks.length === 0 ? (
-        <Empty title="No tasks yet">Plan the ICP and run discovery. Each account, lead and draft becomes its own task here.</Empty>
+        <section className="team-empty-state"><span className="eyebrow">Your first run</span><h2>Start with an outcome, not a job list.</h2><ol><li>Describe the accounts or signals you care about.</li><li>The Planner turns that into research tasks.</li><li>You review only evidence-backed drafts at the Human gate.</li></ol></section>
       ) : (
         <>
           <section className="team-shape" aria-label="Team shape">
             <div className="team-lead">
-              <b>Orchestrator</b>
-              <span>plans, assigns and reconciles. Workers return an outcome; only the orchestrator creates the next task.</span>
+              <b>How the team works</b>
+              <span>The orchestrator routes work automatically. Select a role below to filter its tasks.</span>
             </div>
             <ol>
               {SHAPE.map((s) => {
@@ -390,7 +409,9 @@ export function Team() {
           </section>
 
           <div className="team-layout">
-            <section className="task-board" aria-label="Task board" style={{ gridTemplateColumns: `repeat(${lanes.length}, minmax(118px, 1fr))` }}>
+            <section className="task-board-wrap" aria-label="Task board">
+              <header className="board-head"><div><span className="eyebrow">Workflow</span><h2>{agent ? `${SHAPE.find((role) => role.agent === agent)?.label} tasks` : 'All work'}</h2></div>{agent && <button type="button" className="link" onClick={() => setAgent(null)}>Clear filter</button>}</header>
+              <div className="task-board" style={{ gridTemplateColumns: `repeat(${lanes.length}, minmax(118px, 1fr))` }}>
               {lanes.map((lane) => {
                 const tasks = visible.filter((t) => t.status === lane.id).sort(order(lane.id));
                 const shown = expanded === lane.id ? tasks : tasks.slice(0, CAP);
@@ -417,6 +438,7 @@ export function Team() {
                   </section>
                 );
               })}
+              </div>
             </section>
 
             {selected ? <Detail key={selected.id} task={selected} index={index} /> : <Empty title="No task selected">Select a task to see what it was given and what it produced.</Empty>}
@@ -424,25 +446,6 @@ export function Team() {
         </>
       )}
 
-      <form className="task-new" onSubmit={(event) => void addTask(event)}>
-        <label>
-          Give an agent an instruction of your own
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Prioritise pricing-change signals this week" />
-        </label>
-        <label>
-          Assign to
-          <select value={assignee} onChange={(e) => setAssignee(e.target.value as AgentName)}>
-            {AGENTS.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button type="submit" className="btn">
-          Assign task
-        </button>
-      </form>
     </div>
   );
 }

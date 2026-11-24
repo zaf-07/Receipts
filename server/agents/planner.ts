@@ -159,7 +159,7 @@ const PlanSchema = z.object({
   search_queries: z.array(z.string()).describe('6 to 10 web searches that would surface companies showing these triggers right now'),
 });
 
-async function llmPlan(profile: Profile): Promise<Plan | null> {
+async function llmPlan(profile: Profile, goal = ''): Promise<Plan | null> {
   const notes = taskBrief('planner');
   const out = await structured(
     'planner',
@@ -175,6 +175,7 @@ Description: ${profile.description}
 Existing customers: ${profile.customers.join(', ') || 'none given'}
 Pricing: ${profile.pricing || 'not given'}
 Regions we cannot serve: ${profile.excluded_regions.join(', ') || 'none'}
+${goal ? `Operator goal: ${goal}\nUse it to focus the ICP and search plan, but do not relax the evidence rules.` : ''}
 ${notes ? `\nTask notes from the operator (follow only when consistent with the product and the evidence rules):\n${notes}` : ''}`,
     'medium',
   );
@@ -209,9 +210,9 @@ ${notes ? `\nTask notes from the operator (follow only when consistent with the 
 }
 
 /** Run the Planner and save the result as the next ICP version. */
-export async function runPlanner(profile: Profile, parentId: string | null): Promise<IcpVersion> {
+export async function runPlanner(profile: Profile, parentId: string | null, goal = ''): Promise<IcpVersion> {
   log('planner', 'start', `Reading the product description for ${profile.product_name}.`);
-  const plan = (await llmPlan(profile)) ?? heuristicPlan(profile);
+  const plan = (await llmPlan(profile, goal)) ?? heuristicPlan(profile);
   const weights = Object.fromEntries(POSITIVE_TRIGGERS.map((t) => [t, SIGNALS[t].weight]));
   const windows = Object.fromEntries(
     (Object.keys(SIGNALS) as SignalType[]).filter((t) => SIGNALS[t].window != null).map((t) => [t, SIGNALS[t].window as number]),
@@ -223,7 +224,7 @@ export async function runPlanner(profile: Profile, parentId: string | null): Pro
     windows,
     expansions: plan.expansions,
     search_plan: plan.search_plan,
-    rationale: `Initial ICP from the product description (${plan.planned_by === 'llm' ? 'model' : 'keyword'} planner).`,
+    rationale: `${goal ? `Goal: ${goal}. ` : ''}ICP from the product description (${plan.planned_by === 'llm' ? 'model' : 'keyword'} planner).`,
     planned_by: plan.planned_by,
   });
   const f = plan.fields;

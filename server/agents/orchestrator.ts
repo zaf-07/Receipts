@@ -108,10 +108,10 @@ function requireSetup() {
 // ---------- what each kind of task does ----------
 
 const handlers: Record<'plan' | 'search' | 'read' | 'recheck' | 'enrich' | 'write' | 'verify' | 'scan' | 'learn', Handler> = {
-  async plan() {
+  async plan(task) {
     const profile = getProfile();
     if (!profile) throw new Error('There is no product description to plan from.');
-    const icp = await runPlanner(profile, currentIcp()?.id ?? null);
+    const icp = await runPlanner(profile, currentIcp()?.id ?? null, task.input.goal ?? '');
     return { status: 'done', result: `ICP v${icp.version} saved with ${icp.search_plan.length} searches planned.` };
   },
 
@@ -427,6 +427,13 @@ function reconcileGate(): void {
 /** Called by the pool after every task settles. This is the only place follow-up work is created. */
 function onSettled(task: TaskRun, outcome: Outcome | null): void {
   switch (task.kind) {
+    case 'plan': {
+      if (task.input.start_discovery === 'true') {
+        const run = getRun(task.run_id);
+        if (run) startResearch(run, 'discovery', [task.id]);
+      }
+      break;
+    }
     case 'search': {
       const targets = (outcome?.data?.targets as Target[] | undefined) ?? [];
       for (const target of targets) {
@@ -547,6 +554,32 @@ export function intake(profile: Profile) {
     const icp = currentIcp()!;
     say('planner', 'researcher', `ICP v${icp.version} for ${profile.product_name} is ready: ${icp.fields.industries.map((i) => i.value).join(', ')}. ${icp.search_plan.length} searches are planned. Yours to run.`);
     return icp;
+  });
+}
+
+/**
+ * Begin an executable GTM goal from the Agent team screen. The goal always starts with the
+ * Planner; after it has focused the ICP and search plan, the orchestrator fans the work out to
+ * the other specialists. This is deliberately different from a manual task card.
+ */
+export function startGoal(goal: string) {
+  const objective = goal.trim().slice(0, 1200);
+  if (objective.length < 12) throw new UserError('Describe the outcome you want in a little more detail.');
+  requireSetup();
+  return exclusive('Starting goal', async () => {
+    const run = createRun('discovery', objective);
+    const task = enqueue({
+      run_id: run.id,
+      kind: 'plan',
+      agent: 'planner',
+      title: 'Turn the requested outcome into an ICP and search plan',
+      detail: 'Focus the plan on the operator goal, then hand the work to Researcher. Evidence requirements still apply.',
+      input: { goal: objective, start_discovery: 'true' },
+      max_attempts: 2,
+    });
+    log('human', 'handoff', `Asked the Orchestrator to start: "${objective}"`, { task_id: task.id, run_id: run.id });
+    await dispatch();
+    return getRun(run.id)!;
   });
 }
 

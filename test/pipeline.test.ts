@@ -63,9 +63,16 @@ test('intake produces an ICP with a confidence on every field and two adjacent s
   assert.equal(snap.credits.balance, 38);
 });
 
-test('discovery writes receipts, and every lead ends active or held back with a reason', async () => {
-  await api('/run', {});
+test('an operator goal starts the Planner and discovery rather than creating an inert manual card', async () => {
+  const goal = 'Find 10 B2B SaaS companies showing recent billing or pricing changes, verify the evidence, and prepare outreach drafts.';
+  await api('/goals', { goal });
   const snap = await settled();
+  const planner = snap.tasks.find((t) => t.kind === 'plan' && t.input.goal === goal);
+  assert.ok(planner, 'the goal should create an executable Planner task');
+  assert.equal(planner.status, 'done');
+  assert.ok(snap.tasks.some((t) => t.kind === 'search' && t.run_id === planner.run_id), 'the Planner should hand work to Researcher');
+  assert.equal(snap.tasks.some((t) => t.kind === 'manual' && t.title === goal), false, 'a goal is not a manual card');
+
   assert.equal(snap.leads.length, 28);
   assert.equal(snap.competitors.length, 2);
 
@@ -138,7 +145,7 @@ test('the pipeline ran as scoped tasks in parallel, one per account, lead and dr
   const snap = await settled();
   const of = (kind: string) => snap.tasks.filter((t) => t.kind === kind);
 
-  assert.equal(of('plan').length, 1, 'one ICP run');
+  assert.equal(of('plan').length, 2, 'one intake plan plus one operator-goal plan');
   assert.equal(of('search').length, 1);
   assert.equal(of('read').length, snap.leads.length, 'one read task per account');
   assert.ok(of('read').every((t) => t.status === 'done' && t.attempt === 1));
@@ -254,12 +261,12 @@ test('ingest wakes a dormant lead, and the credit gate holds its enrichment', as
   assert.equal(snap.credits.gated, false);
 });
 
-test('a reply raises the weight of the cited signal type and saves ICP v2', async () => {
+test('a reply raises the weight of the cited signal type and saves the next ICP version', async () => {
   let snap = await settled();
   const before = lead(snap, 'Quillstack').score;
   await api(`/leads/${lead(snap, 'Quillstack').id}/stage`, { to_stage: 'Replied', actor: 'Tester' });
   snap = await settled();
-  assert.equal(snap.icp?.version, 2);
+  assert.equal(snap.icp?.version, 3);
   assert.equal(snap.icp?.weights.tech_change, 56.25);
   assert.equal(snap.icp_versions[0].weights.tech_change, 45);
   assert.ok(lead(snap, 'Quillstack').score > before);

@@ -32,6 +32,7 @@ import {
   retry,
   syncBilling,
   reverify,
+  startGoal,
   tick,
   topUp,
   wake,
@@ -123,6 +124,10 @@ export function createApp() {
     } catch (err) {
       throw new UserError(err instanceof Error ? err.message : 'Could not create the task.');
     }
+  });
+
+  api.post('/goals', async (req, res) => {
+    res.status(202).json(await startGoal(text(req.body.goal, 1200)));
   });
 
   api.post('/tasks/:id/status', (req, res) => {
