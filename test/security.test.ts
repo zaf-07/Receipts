@@ -71,7 +71,7 @@ test('in the source, exactly one module can mark a message sent, and only the hu
   const approve = orchestrator.slice(orchestrator.indexOf('export function approve('), orchestrator.indexOf('export function reject('));
   assert.match(approve, /\bdeliver\(/, 'which is the approve command a person triggers');
 
-  for (const agent of ['planner', 'researcher', 'enricher', 'writer', 'skeptic', 'analyst', 'pool', 'extractor']) {
+  for (const agent of ['planner', 'researcher', 'enricher', 'writer', 'skeptic', 'security', 'analyst', 'pool', 'extractor']) {
     const text = source.find((f) => f.path.endsWith(`agents/${agent}.ts`))!.text;
     assert.doesNotMatch(text, /delivery|markSent|moveStage/, `${agent}.ts has no way to send or to move a deal`);
   }

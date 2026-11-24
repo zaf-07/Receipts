@@ -22,6 +22,7 @@ const SHAPE: { agent: AgentName; label: string; scope: string }[] = [
   { agent: 'enricher', label: 'Enricher', scope: 'one task per lead' },
   { agent: 'writer', label: 'Writer', scope: 'one task per enriched lead' },
   { agent: 'skeptic', label: 'Skeptic', scope: 'one task per draft' },
+  { agent: 'security', label: 'Security', scope: 'one scan per draft' },
   { agent: 'human', label: 'Human gate', scope: 'one decision per draft' },
   { agent: 'analyst', label: 'Analyst', scope: 'one task per outcome' },
 ];
@@ -34,12 +35,13 @@ export const KIND_LABEL: Record<TaskKind, string> = {
   enrich: 'Enrich',
   write: 'Draft',
   verify: 'Verify',
+  scan: 'Security scan',
   approve: 'Human gate',
   learn: 'Learn',
   manual: 'Manual',
 };
 
-const AGENTS: AgentName[] = ['planner', 'researcher', 'enricher', 'writer', 'skeptic', 'analyst', 'human'];
+const AGENTS: AgentName[] = ['planner', 'researcher', 'enricher', 'writer', 'skeptic', 'security', 'analyst', 'human'];
 const CAP = 10;
 
 /** Every receipt in the snapshot by id, so a task's input and output ids can be shown as chips. */
@@ -63,6 +65,7 @@ function shortTitle(task: TaskRun): string {
   if (task.kind === 'write') return 'Draft outreach';
   const what = task.input.channel === 'linkedin' ? 'LinkedIn note' : (task.input.channel ?? 'draft');
   if (task.kind === 'verify') return `Verify the ${what}`;
+  if (task.kind === 'scan') return `Scan the ${what}`;
   if (task.kind === 'approve') return `Decide on the ${what}`;
   if (task.kind === 'learn') return 'Learn from the reply';
   return task.title;
@@ -319,7 +322,7 @@ export function Team() {
         <div>
           <h1>Agent team</h1>
           <p>
-            One orchestrator plans and assigns. Seven roles do scoped work in parallel and hand it on. Every task is leased, retried if its worker stops, and
+            One orchestrator plans and assigns. Eight roles do scoped work in parallel and hand it on. Every task is leased, retried if its worker stops, and
             settled exactly once.
           </p>
         </div>
@@ -337,6 +340,18 @@ export function Team() {
           </label>
           <span className="muted small">
             {snap.team.concurrency} workers at once · {snap.team.lease_seconds}s leases · {snap.running ?? 'idle'}
+          </span>
+          <span className="muted small">
+            {snap.team.usage.calls === 0
+              ? 'No model calls yet'
+              : `${snap.team.usage.calls} model calls · ${((snap.team.usage.input_tokens + snap.team.usage.output_tokens) / 1000).toFixed(1)}k tokens${snap.team.usage.cost_usd == null ? '' : ` · ${snap.team.usage.cost_usd.toFixed(3)}`}`}
+          </span>
+          <span className={`band-status ${snap.team.band.connected ? 'on' : ''}`} title={snap.team.band.last_error ?? ''}>
+            {snap.team.band.connected
+              ? `Band room: ${snap.team.band.agents.length} agents${snap.team.band.human ? `, decisions to @${snap.team.band.human}` : ''} · ${snap.team.band.messages_sent} sent, ${snap.team.band.messages_received} received`
+              : snap.team.band.configured
+                ? `Band room not connected${snap.team.band.last_error ? `: ${snap.team.band.last_error}` : ''}`
+                : 'Band room: not configured (set BAND_API_KEY and BAND_CHAT_ID)'}
           </span>
         </div>
       </header>

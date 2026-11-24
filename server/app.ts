@@ -37,7 +37,7 @@ import {
 } from './agents/orchestrator';
 import { setPageStatus, seedWorld, worldRouter, worldSeeded } from './world/world';
 import { EXAMPLE_PROFILE } from './world/seed';
-import { AGENT_ROLES, bandEnabled } from './integrations/band';
+import { AGENT_ROLES, bandEnabled, bandStatus, connectBand, pollBand } from './integrations/band';
 import { addTaskMessage, createManualTask, setManualStatus } from './services/tasks';
 
 const text = (v: unknown, max = 4000) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
@@ -65,8 +65,8 @@ export function createApp() {
   api.get('/roles', (_req, res) => res.json(AGENT_ROLES));
   api.get('/band/status', (_req, res) =>
     res.json({
-      configured: bandEnabled(),
-      mode: bandEnabled() ? 'Band Agent API room events' : 'local activity feed only',
+      ...bandStatus(),
+      mode: bandEnabled() ? 'Band room: mention handoffs, human decisions and execution events' : 'local activity stream only',
       roles: AGENT_ROLES,
     }),
   );
@@ -281,6 +281,21 @@ export async function start(opts: { port?: number; dbPath?: string } = {}): Prom
   waker.unref();
   wake();
 
+  // Join the Band room when one is configured, then listen for what people say in it.
+  let listener: NodeJS.Timeout | null = null;
+  if (bandEnabled()) {
+    log('system', 'info', await connectBand());
+    let polling = false;
+    listener = setInterval(() => {
+      if (polling) return;
+      polling = true;
+      void pollBand().finally(() => {
+        polling = false;
+      });
+    }, config.band.pollMs);
+    listener.unref();
+  }
+
   // Receipts expire on their own, so the state rules also run on a clock tick.
   const timer = setInterval(tick, 30_000);
   timer.unref();
@@ -292,6 +307,7 @@ export async function start(opts: { port?: number; dbPath?: string } = {}): Prom
       new Promise<void>((done) => {
         clearInterval(timer);
         clearInterval(waker);
+        if (listener) clearInterval(listener);
         server.closeAllConnections();
         server.close(() => done());
       }),

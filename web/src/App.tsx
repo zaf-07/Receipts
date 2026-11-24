@@ -35,6 +35,7 @@ const AGENT_LABEL: Record<string, string> = {
   enricher: 'Enricher',
   writer: 'Writer',
   skeptic: 'Skeptic',
+  security: 'Security',
   analyst: 'Analyst',
   human: 'Human',
   ledger: 'Ledger',

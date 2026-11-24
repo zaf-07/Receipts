@@ -21,7 +21,7 @@ export function setTaskClock(fn: (() => number) | null): void {
 }
 const iso = (ms = clock()) => new Date(ms).toISOString();
 
-const ASSIGNEES: AgentName[] = ['planner', 'researcher', 'enricher', 'writer', 'skeptic', 'analyst', 'human'];
+const ASSIGNEES: AgentName[] = ['planner', 'researcher', 'enricher', 'writer', 'skeptic', 'security', 'analyst', 'human'];
 
 type TaskRow = Omit<TaskRun, 'depends_on' | 'input' | 'input_receipt_ids' | 'output_receipt_ids' | 'output_message_ids'> & {
   depends_on: string;

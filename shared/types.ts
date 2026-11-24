@@ -215,6 +215,7 @@ export type AgentName =
   | 'enricher'
   | 'writer'
   | 'skeptic'
+  | 'security'
   | 'analyst'
   | 'human'
   | 'ledger'
@@ -242,7 +243,7 @@ export interface ActivityEntry {
 export type TaskStatus = 'queued' | 'running' | 'blocked' | 'review' | 'done' | 'failed';
 
 /** What a task does. Each kind is scoped to one unit: one ICP, one search, one account, one lead, one draft. */
-export type TaskKind = 'plan' | 'search' | 'read' | 'recheck' | 'enrich' | 'write' | 'verify' | 'approve' | 'learn' | 'manual';
+export type TaskKind = 'plan' | 'search' | 'read' | 'recheck' | 'enrich' | 'write' | 'verify' | 'scan' | 'approve' | 'learn' | 'manual';
 
 export type BlockerCode = 'credits' | 'dependency' | 'operator';
 
@@ -408,7 +409,13 @@ export interface Snapshot {
   runs: PipelineRun[];
   task_messages: AgentTaskMessage[];
   draft_versions: DraftVersion[];
-  team: { concurrency: number; lease_seconds: number };
+  team: {
+    concurrency: number;
+    lease_seconds: number;
+    /** Model calls so far: tokens and, where the price is known, dollars. */
+    usage: { calls: number; input_tokens: number; output_tokens: number; cost_usd: number | null; by_agent: { agent: string; calls: number; tokens: number; cost_usd: number | null }[] };
+    band: { configured: boolean; connected: boolean; agents: { role: string; handle: string }[]; human: string | null; messages_sent: number; messages_received: number; last_error: string | null };
+  };
   world: { pages: WorldPageView[]; pending_batches: number };
 }
 

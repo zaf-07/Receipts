@@ -8,6 +8,9 @@ import { containsSnippet, htmlToText } from '../server/domain/text';
 import { ruleFacts, rulePeople, ruleSignals } from '../server/agents/extractor';
 import { unsupportedFigures, validateDraft } from '../server/agents/writer';
 import { sharesCategory } from '../server/agents/researcher';
+import { scanDraft } from '../server/agents/security';
+import { costOf } from '../server/services/usage';
+import type { Company, Message, Person } from '../shared/types';
 
 const DAY = 86_400_000;
 const NOW = new Date('2026-11-24T12:00:00Z');
@@ -222,4 +225,52 @@ test('a rival is recognised from single-word and from phrase keywords alike', ()
     assert.equal(sharesCategory(tallybird, keywords), true);
     assert.equal(sharesCategory(prospect, keywords), false, 'one shared word is not enough');
   }
+});
+
+// ---------- the security scan ----------
+
+test('the security scan clears a clean draft and blocks links, leaks and a wrong recipient', () => {
+  const company = { id: 'c_1', name: 'Acme', domain: 'acme.example', site_url: 'https://acme.example/', industry: null, headcount: null, region: null, hq: null, kind: 'prospect', differentiator: null } as Company;
+  const person = { id: 'p_1', company_id: 'c_1', name: 'Dana Whitfield', title: 'CRO', email: 'dana@acme.example', email_status: 'verified', previous_companies: [], confidence: 0.9 } as Person;
+  const cited = [receipt('funding', 5, { source_url: 'https://news.acme.example/series-b' })];
+  const draft = (...lines: string[]): Message =>
+    ({
+      id: 'm_1',
+      lead_id: 'l_1',
+      channel: 'email',
+      variant: 'A',
+      subject: 'A thought',
+      sentences: lines.map((text) => ({ text, kind: 'connective', receipt_ids: [], status: 'ok' })),
+      status: 'pending_review',
+    }) as unknown as Message;
+  const ctx = { company, person, cited, otherAccounts: ['Acme', 'Northbeam AI', 'Quillstack'] };
+  const codes = (m: Message, over = {}) => scanDraft(m, { ...ctx, ...over }).map((f) => `${f.severity}:${f.code}`);
+
+  assert.deepEqual(codes(draft('Hi Dana,', 'Worth a 15-minute look next week?')), []);
+  assert.deepEqual(codes(draft('The announcement is at https://news.acme.example/series-b.')), [], 'a link to a cited source is fine');
+
+  assert.deepEqual(codes(draft('Book a slot at https://bit.ly/3xyz')), ['block:shortened_link']);
+  assert.deepEqual(codes(draft('See https://totally-unrelated.example/offer')), ['block:unverified_link']);
+  assert.deepEqual(codes(draft('Our dashboard is at http://localhost:8787/accounts')), ['block:internal_link']);
+  assert.deepEqual(codes(draft('This rests on receipt r_3fa9c1.')), ['block:internal_id']);
+  assert.deepEqual(codes(draft('Use key sk-live-abcdefghijklmnopqrstuv to try it.')), ['block:secret']);
+  assert.deepEqual(codes(draft('Northbeam AI is also looking at this.')), ['block:other_prospect']);
+  assert.deepEqual(codes(draft('You can also reach tom@elsewhere.example.')), ['block:third_party_email']);
+
+  assert.deepEqual(codes(draft('Hi Dana,'), { person: { ...person, email: 'dana@gmail.example' } }), ['block:recipient_domain']);
+  assert.deepEqual(codes(draft('Hi Dana,'), { person: { ...person, email_status: 'guessed' } }), ['warn:guessed_recipient'], 'a guessed address is a warning, not a block');
+  assert.deepEqual(codes(draft('Hi Dana,'), { person: null }), ['block:no_recipient']);
+
+  // A struck sentence is not part of what would be sent, so it is not scanned.
+  const struck = draft('See https://bit.ly/3xyz');
+  struck.sentences[0].status = 'struck';
+  assert.deepEqual(codes(struck), []);
+});
+
+// ---------- telemetry ----------
+
+test('model cost is computed from list prices, and an unknown model has no price', () => {
+  assert.equal(costOf('claude-opus-5-5', 1_000_000, 1_000_000), 24);
+  assert.equal(costOf('claude-opus-5-5', 2000, 500), (2000 * 4 + 500 * 20) / 1_000_000);
+  assert.equal(costOf('some-other-model', 1000, 1000), null);
 });

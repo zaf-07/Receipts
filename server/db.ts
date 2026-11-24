@@ -218,6 +218,21 @@ CREATE TABLE IF NOT EXISTS agent_task_messages (
   created_at TEXT NOT NULL
 );
 
+-- One row per model call: who asked, on which task, and what it cost. This is the execution telemetry.
+CREATE TABLE IF NOT EXISTS llm_usage (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id TEXT,
+  run_id TEXT,
+  agent TEXT NOT NULL,
+  purpose TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  input_tokens INTEGER NOT NULL,
+  output_tokens INTEGER NOT NULL,
+  cost_usd REAL,
+  created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS world_pages (
   id TEXT PRIMARY KEY,
   site TEXT NOT NULL,
@@ -251,6 +266,7 @@ const TABLES = [
   'verifications',
   'message_versions',
   'agent_task_messages',
+  'llm_usage',
   'world_pages',
 ];
 
@@ -318,7 +334,7 @@ export function setSetting(key: string, value: unknown): void {
 /** Empties every table. Used by the demo reset. */
 export function wipe(): void {
   for (const table of TABLES) db.exec(`DELETE FROM ${table};`);
-  db.exec("DELETE FROM sqlite_sequence WHERE name IN ('ledger', 'activity', 'verifications', 'message_versions', 'agent_task_messages');");
+  db.exec("DELETE FROM sqlite_sequence WHERE name IN ('ledger', 'activity', 'verifications', 'message_versions', 'agent_task_messages', 'llm_usage');");
   settingsCache.clear();
 }
 

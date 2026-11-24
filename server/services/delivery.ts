@@ -6,8 +6,9 @@ import { log } from './activity';
 import { currentTask } from './context';
 import { balance, charge } from './ledger';
 import { moveStage } from './leads';
-import { getCompany, getLead, getMessage, getPerson, getReceipt, markSent } from './store';
+import { getCompany, getLead, getMessage, getPerson, getReceipt, listCompanies, markSent } from './store';
 import { getTask } from './tasks';
+import { scanDraft } from '../agents/security';
 
 // The one door out. Nothing else in the codebase can mark a message sent.
 //
@@ -51,6 +52,15 @@ export function deliver(messageId: string, gateTaskId: string, reviewer: string)
       }
     }
   }
+  // The Security agent's check is repeated here, at the door, so a draft cannot go out around it.
+  const cited = message.sentences
+    .filter((s) => s.kind === 'claim' && s.status === 'ok')
+    .flatMap((s) => s.receipt_ids)
+    .map((id) => getReceipt(id))
+    .filter((r) => r !== null);
+  const stop = scanDraft(message, { company, person, cited, otherAccounts: listCompanies('prospect').map((c) => c.name) }).find((f) => f.severity === 'block');
+  if (stop) throw new UserError(`Security check failed: ${stop.message}`);
+
   if (!charge('send', message.id, `Sending to ${company.name}`, lead.id)) {
     throw new UserError(`Sending needs ${config.costs.send} credit and the balance is ${balance()}. Top up to send.`);
   }

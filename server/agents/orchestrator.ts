@@ -1,4 +1,4 @@
-import type { Lead, Message, PipelineRun, Profile, Stage, TaskRun } from '../../shared/types';
+import type { Lead, Message, PipelineRun, Profile, Receipt, Stage, TaskRun } from '../../shared/types';
 import { STAGES } from '../../shared/constants';
 import { advanceClock, now } from '../clock';
 import { config } from '../config';
@@ -16,6 +16,8 @@ import {
   enqueue,
   getRun,
   getTask,
+  addTaskMessage,
+  createManualTask,
   resolveReview,
   retryTask,
   setRunPhase,
@@ -30,7 +32,9 @@ import {
   getMessage,
   getPerson,
   getProfile,
+  getReceipt,
   leadReceipts,
+  listCompanies,
   listIcpVersions,
   listLeads,
   listTransitions,
@@ -42,12 +46,14 @@ import {
   updateMessage,
 } from '../services/store';
 import { applyAfterCrawl, releaseNextBatch, seedWorld } from '../world/world';
+import { onBandDecision, onBandNote, requestDecision, resolveDecision, say } from '../integrations/band';
 import { runAnalyst } from './analyst';
 import { enrichLead } from './enricher';
 import { runPlanner } from './planner';
 import { createPool, type Handler } from './pool';
 import { readTarget, runSearch, type Target } from './researcher';
 import { recheckNegatives, reviewDraft } from './skeptic';
+import { scanDraft, summarise } from './security';
 import { validateDraft, writeDraft } from './writer';
 
 export { UserError };
@@ -60,6 +66,7 @@ export { UserError };
 //   -> Enricher: one task per active lead, in parallel
 //   -> Writer: one task per enriched lead, in parallel
 //   -> Skeptic: one task per draft, in parallel
+//   -> Security: one scan per verified draft (links, data exposure, recipient)
 //   -> Human gate: one review task per verified draft. Nothing sends without it.
 //   -> Analyst: one task per outcome
 //
@@ -98,7 +105,7 @@ function requireSetup() {
 
 // ---------- what each kind of task does ----------
 
-const handlers: Record<'plan' | 'search' | 'read' | 'recheck' | 'enrich' | 'write' | 'verify' | 'learn', Handler> = {
+const handlers: Record<'plan' | 'search' | 'read' | 'recheck' | 'enrich' | 'write' | 'verify' | 'scan' | 'learn', Handler> = {
   async plan() {
     const profile = getProfile();
     if (!profile) throw new Error('There is no product description to plan from.');
@@ -200,6 +207,28 @@ const handlers: Record<'plan' | 'search' | 'read' | 'recheck' | 'enrich' | 'writ
     };
   },
 
+  async scan(task) {
+    const message = getMessage(task.input.message_id);
+    if (!message) throw new Error('The draft no longer exists.');
+    if (message.status !== 'pending_review') return { status: 'done', result: `Nothing to scan: the draft is ${message.status.replace('_', ' ')}.`, messages: [message.id] };
+    const lead = getLead(message.lead_id);
+    const company = lead ? getCompany(lead.company_id) : null;
+    const findings = scanDraft(message, {
+      company,
+      person: lead ? getPerson(lead.person_id) : null,
+      cited: citedLive(message),
+      otherAccounts: listCompanies('prospect').map((c) => c.name),
+    });
+    const blocking = findings.filter((f) => f.severity === 'block');
+    if (blocking.length) {
+      updateMessage(message.id, { status: 'blocked', block_reason: `Security: ${blocking[0].message}` });
+      log('security', 'block', `Draft for ${company?.name ?? 'a lead'} blocked by the security scan: ${blocking.map((f) => f.message).join(' ')}`, { lead_id: message.lead_id, ref: message.id });
+    } else {
+      log('security', 'handoff', `${company?.name ?? 'A lead'}: ${channelName(message)} ${summarise(findings).replace(/^Cleared/, 'cleared')} Waiting for a human.`, { lead_id: message.lead_id, ref: message.id });
+    }
+    return { status: 'done', result: summarise(findings), messages: [message.id], receipts: citedReceipts([message]), data: { findings } };
+  },
+
   async learn(task) {
     if (!task.lead_id) throw new Error('No lead to learn from.');
     const next = runAnalyst(task.lead_id);
@@ -209,6 +238,10 @@ const handlers: Record<'plan' | 'search' | 'read' | 'recheck' | 'enrich' | 'writ
 
 const receiptIds = (entityId: string | null) => (entityId ? leadReceipts({ company_id: '', person_id: entityId }).map((r) => r.id) : []);
 const citedReceipts = (messages: Message[]) => [...new Set(messages.flatMap((m) => m.sentences.flatMap((s) => s.receipt_ids)))];
+const citedLive = (message: Message): Receipt[] =>
+  [...new Set(message.sentences.filter((s) => s.kind === 'claim' && s.status === 'ok').flatMap((s) => s.receipt_ids))]
+    .map((id) => getReceipt(id))
+    .filter((r): r is Receipt => r !== null);
 
 const pool = createPool({ handlers, concurrency: config.concurrency, leaseMs: config.leaseMs, onSettled, onBlocked });
 
@@ -279,6 +312,25 @@ function planVerify(message: Message, runId: string, after: string[]): void {
   });
 }
 
+function planScan(message: Message, runId: string, after: string[]): void {
+  const lead = getLead(message.lead_id);
+  const earlier = tasksWhere("kind = 'scan'").filter((t) => t.input.message_id === message.id).length;
+  enqueue({
+    run_id: runId,
+    kind: 'scan',
+    agent: 'security',
+    lead_id: message.lead_id,
+    title: `Scan the ${channelName(message)} for ${lead ? companyName(lead) : 'a lead'} before it reaches a person`,
+    detail: 'Check outbound links, internal data in the copy, other prospects named, and that the recipient is at the target company.',
+    priority: lead?.score ?? 0,
+    depends_on: after,
+    input: { message_id: message.id, channel: message.channel },
+    input_receipt_ids: citedReceipts([message]),
+    key: `scan:${message.id}:${earlier}`,
+    max_attempts: 2,
+  });
+}
+
 /** Every active lead gets the next task it needs. Idempotent: planning twice creates nothing new. */
 function planLeadWork(runId: string): void {
   for (const lead of listLeads()) {
@@ -327,6 +379,13 @@ function afterResearch(runId: string): void {
     { run_id: runId },
   );
   planLeadWork(runId);
+  const all = listLeads();
+  const ready = all.filter((l) => l.state === 'active' && l.stage === 'Matched');
+  say(
+    'researcher',
+    'enricher',
+    `${ready.length} lead${ready.length === 1 ? ' has' : 's have'} a live reason to contact: ${ready.slice(0, 8).map(companyName).join(', ') || 'none'}. ${all.length - ready.length} are held back with their reasons. Each active lead needs a contact.`,
+  );
 }
 
 /** Keep the human gate in step with the drafts: one open review task per draft that is waiting for a person. */
@@ -390,20 +449,56 @@ function onSettled(task: TaskRun, outcome: Outcome | null): void {
       break;
     case 'enrich': {
       const lead = task.lead_id ? getLead(task.lead_id) : null;
-      if (outcome?.status === 'done' && lead?.person_id && lead.state === 'active') planWrite(lead, task.run_id, [task.id], true);
+      if (outcome?.status === 'done' && lead?.person_id && lead.state === 'active') {
+        planWrite(lead, task.run_id, [task.id], true);
+        say('enricher', 'writer', `${companyName(lead)}: ${task.result} Contact receipts: ${task.output_receipt_ids.join(', ') || 'none'}. Yours to draft.`);
+      }
       break;
     }
-    case 'write':
+    case 'write': {
       for (const id of task.output_message_ids) {
         const message = getMessage(id);
         if (message) planVerify(message, task.run_id, [task.id]);
       }
-      break;
-    case 'verify': {
-      const message = getMessage(task.input.message_id);
-      if (message) syncGate(message, task.run_id);
+      const lead = task.lead_id ? getLead(task.lead_id) : null;
+      if (lead && task.output_message_ids.length) {
+        say('writer', 'skeptic', `${companyName(lead)}: ${task.result} The claims cite ${task.input_receipt_ids.join(', ')}. Re-open every source before a person sees this.`);
+      }
       break;
     }
+    case 'verify': {
+      // A verified draft goes to the Security agent before it can reach a person.
+      const message = getMessage(task.input.message_id);
+      if (!message) break;
+      const lead = getLead(message.lead_id);
+      const about = `${lead ? companyName(lead) : 'A lead'}, ${channelName(message)}`;
+      if (message.status === 'pending_review') {
+        planScan(message, task.run_id, [task.id]);
+        say('skeptic', 'security', `${about}: ${task.result} Yours to scan before it reaches a person.`);
+      } else {
+        syncGate(message, task.run_id);
+        say('skeptic', 'human', `${about}: ${task.result}`);
+      }
+      break;
+    }
+    case 'scan': {
+      const message = getMessage(task.input.message_id);
+      if (!message) break;
+      syncGate(message, task.run_id);
+      const lead = getLead(message.lead_id);
+      const person = lead ? getPerson(lead.person_id) : null;
+      const about = `${lead ? companyName(lead) : 'A lead'}: the ${channelName(message)} to ${person?.name ?? 'the contact'}`;
+      if (message.status === 'pending_review') {
+        const claims = message.sentences.filter((s) => s.kind === 'claim' && s.status === 'ok');
+        requestDecision('security', message.id, `${about} is verified and cleared. ${claims.length} claim${claims.length === 1 ? ' rests' : 's rest'} on receipts ${[...new Set(claims.flatMap((s) => s.receipt_ids))].join(', ')}. ${task.result}`);
+      } else {
+        say('security', 'human', `${about} did not pass. ${task.result}`);
+      }
+      break;
+    }
+    case 'learn':
+      say('analyst', 'planner', `${task.title}. ${task.result}`);
+      break;
     default:
       break;
   }
@@ -447,7 +542,9 @@ export function intake(profile: Profile) {
     const done = getTask(task.id)!;
     if (done.status !== 'done') throw new UserError(`The Planner could not finish: ${done.error ?? done.blocker ?? 'no reason recorded'}`);
     recomputeAll();
-    return currentIcp()!;
+    const icp = currentIcp()!;
+    say('planner', 'researcher', `ICP v${icp.version} for ${profile.product_name} is ready: ${icp.fields.industries.map((i) => i.value).join(', ')}. ${icp.search_plan.length} searches are planned. Yours to run.`);
+    return icp;
   });
 }
 
@@ -560,7 +657,11 @@ export function approve(messageId: string, reviewer: string): void {
   if (message.status !== 'pending_review') throw new UserError(`This draft is ${message.status.replace('_', ' ')} and cannot be approved.`);
   recomputeAll();
   const fresh = getMessage(messageId)!;
+  if (tasksWhere("kind = 'scan' AND status IN ('queued', 'running')").some((t) => t.input.message_id === messageId)) {
+    throw new UserError('The security scan for this draft has not finished yet.');
+  }
   // Drafts written before task runs existed have no review task yet. The orchestrator opens one.
+  // Delivery repeats the security check itself, so this cannot be used to skip it.
   const gate = syncGate(fresh);
   if (!gate) {
     const lead = getLead(fresh.lead_id)!;
@@ -568,6 +669,7 @@ export function approve(messageId: string, reviewer: string): void {
   }
   deliver(messageId, gate.id, reviewer);
   resolveReview(gate.id, `Approved by ${reviewer}. Send logged.`, [messageId]);
+  resolveDecision(messageId, `${messageId} approved by ${reviewer}. The send to ${companyName(getLead(fresh.lead_id)!)} is logged and the card moved to Contacted.`);
   settleRuns();
   changed();
 }
@@ -579,6 +681,7 @@ export function reject(messageId: string, reviewer: string, note: string): void 
   const gate = tasksWhere("kind = 'approve' AND status = 'review'").find((t) => t.input.message_id === messageId);
   updateMessage(message.id, { status: 'rejected', reviewer, block_reason: note || 'Rejected by the reviewer.' });
   if (gate) resolveReview(gate.id, `Rejected by ${reviewer}${note ? `: ${note}` : ''}. Nothing was sent.`);
+  resolveDecision(messageId, `${messageId} rejected by ${reviewer}${note ? `: ${note}` : ''}. Nothing was sent.`);
   const lead = getLead(message.lead_id);
   log('human', 'info', `${reviewer} rejected the draft for ${lead ? companyName(lead) : 'a lead'}${note ? `: ${note}` : ''}. Nothing was sent.`, {
     lead_id: message.lead_id,
@@ -726,3 +829,29 @@ export function resetDemo(): void {
   log('system', 'info', `Fresh start: empty pipeline, seeded demo world, ${config.startingCredits} credits.`);
   changed();
 }
+
+// ---------- the Band room ----------
+
+const ROOM_NOTES = 'Instructions from the Band room';
+
+// A person decides in the room. Their reply goes through the same approve and reject as the
+// review queue, so the human gate and the delivery guard apply exactly as they do in the app.
+onBandDecision(({ action, messageId, reviewer, note }) => {
+  try {
+    if (action === 'approve') approve(messageId, reviewer);
+    else reject(messageId, reviewer, note);
+    return '';
+  } catch (err) {
+    return `Could not ${action} ${messageId}: ${err instanceof Error ? err.message : 'unknown error'}`;
+  }
+});
+
+// A person instructs an agent in the room. The instruction is kept as a note on that agent's
+// standing task and reaches the agent on its next model-backed run, bounded and marked as operator intent.
+onBandNote((role, text, author) => {
+  const standing =
+    tasksWhere("kind = 'manual' AND agent = ? AND title = ? AND status NOT IN ('done', 'failed')", role, ROOM_NOTES)[0] ??
+    createManualTask({ title: ROOM_NOTES, agent: role, detail: 'What people asked this agent for in the Band room.' });
+  addTaskMessage(standing.id, { author, body: text });
+  return `Noted for the ${role}. It applies from the next run.`;
+});

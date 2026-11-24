@@ -20,11 +20,12 @@ import { getSetting, setSetting } from '../db';
 import { isExpired, isLive, isTrigger } from '../domain/state';
 import { firstName, normalize } from '../domain/text';
 import { flexpriceEnabled } from '../integrations/flexprice';
-import { bandEnabled } from '../integrations/band';
+import { bandEnabled, bandStatus } from '../integrations/band';
 import { unsupportedFigures, warmIntro } from '../agents/writer';
 import { recentActivity } from './activity';
 import { balance, countOps, recentLedger } from './ledger';
 import { listRuns, listTaskMessages, listTasks } from './tasks';
+import { usageSummary } from './usage';
 import {
   allReceipts,
   currentIcp,
@@ -180,7 +181,7 @@ export function buildSnapshot(running: string | null): Snapshot {
     runs: listRuns().filter((r) => tasks.some((t) => t.run_id === r.id)),
     task_messages: listTaskMessages(),
     draft_versions: listDraftVersions(),
-    team: { concurrency: config.concurrency, lease_seconds: Math.round(config.leaseMs / 1000) },
+    team: { concurrency: config.concurrency, lease_seconds: Math.round(config.leaseMs / 1000), usage: usageSummary(), band: bandStatus() },
     world: { pages: config.source === 'world' ? listWorldPages() : [], pending_batches: pendingBatches() },
   };
 }

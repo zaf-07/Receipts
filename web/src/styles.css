@@ -643,7 +643,7 @@ textarea {
 .team-shape ol {
   list-style: none;
   display: grid;
-  grid-template-columns: repeat(7, minmax(104px, 1fr));
+  grid-template-columns: repeat(8, minmax(98px, 1fr));
   gap: 14px;
   margin: 12px 0 0;
   padding: 0;
@@ -956,6 +956,16 @@ textarea {
 .task-detail .task-compose {
   padding-top: 0;
   justify-items: start;
+}
+
+.band-status {
+  font: 11px/1.4 var(--mono);
+  color: var(--muted);
+}
+
+.band-status.on {
+  color: var(--good);
+  font-weight: 600;
 }
 
 /* A task-linked line in the event stream. */
@@ -3321,6 +3331,11 @@ kbd {
 .agent-skeptic {
   background: var(--bad-bg);
   color: var(--bad);
+}
+
+.agent-security {
+  background: #e9e2f0;
+  color: #5a2d82;
 }
 
 .agent-analyst {

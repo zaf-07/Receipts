@@ -41,6 +41,19 @@ export const config = {
     apiKey: env.BAND_API_KEY ?? '',
     chatId: env.BAND_CHAT_ID ?? '',
     baseUrl: (env.BAND_API_BASE_URL ?? 'https://app.band.ai/api/v1').replace(/\/$/, ''),
+    /** Optional: one Band remote agent per role, so each role speaks and is mentioned as itself. */
+    roleKeys: {
+      planner: env.BAND_KEY_PLANNER ?? '',
+      researcher: env.BAND_KEY_RESEARCHER ?? '',
+      enricher: env.BAND_KEY_ENRICHER ?? '',
+      writer: env.BAND_KEY_WRITER ?? '',
+      skeptic: env.BAND_KEY_SKEPTIC ?? '',
+      security: env.BAND_KEY_SECURITY ?? '',
+      analyst: env.BAND_KEY_ANALYST ?? '',
+    } as Record<string, string>,
+    /** The person in the room who decides. Defaults to the room owner. */
+    humanHandle: env.BAND_HUMAN_HANDLE ?? '',
+    pollMs: Math.max(100, Number(env.BAND_POLL_MS ?? 4000)),
   },
   moss: {
     projectId: env.MOSS_PROJECT_ID ?? '',

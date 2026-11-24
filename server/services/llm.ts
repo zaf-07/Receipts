@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { type z, toJSONSchema } from 'zod';
 import { config, llmEnabled } from '../config';
+import { recordUsage } from './usage';
 
 let client: Anthropic | null = null;
 const anthropic = () => (client ??= new Anthropic());
@@ -34,7 +35,11 @@ async function groqStructured<S extends z.ZodType>(where: string, schema: S, sys
       signal: AbortSignal.timeout(30_000),
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const body = (await response.json()) as { choices?: Array<{ message?: { content?: string | null } }> };
+    const body = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string | null } }>;
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
+    };
+    recordUsage(where, body.usage?.prompt_tokens ?? 0, body.usage?.completion_tokens ?? 0);
     const content = body.choices?.[0]?.message?.content;
     if (!content) throw new Error('empty completion');
     const parsed = schema.safeParse(JSON.parse(content));
@@ -71,6 +76,7 @@ export async function structured<S extends z.ZodType>(
       console.warn(`[llm] ${where}: stopped with ${res.stop_reason}`);
       return null;
     }
+    recordUsage(where, res.usage.input_tokens, res.usage.output_tokens);
     return (res.parsed_output as z.infer<S> | null) ?? null;
   } catch (err) {
     report(where, err);
@@ -104,6 +110,7 @@ export async function webSearch(query: string, maxResults = 6): Promise<WebResul
       ],
     });
     const out: WebResult[] = [];
+    recordUsage('web search', res.usage.input_tokens, res.usage.output_tokens);
     for (const block of res.content) {
       if (block.type !== 'web_search_tool_result' || !Array.isArray(block.content)) continue;
       for (const item of block.content) {
