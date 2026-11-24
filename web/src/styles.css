@@ -447,6 +447,167 @@ textarea {
   gap: 16px;
 }
 
+/* ---------- agent team ---------- */
+
+.team-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.7fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.task-board {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(150px, 1fr));
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.task-lane {
+  min-height: 240px;
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 9px;
+}
+
+.task-lane > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--rule-2);
+}
+
+.task-lane > header b {
+  font: 600 11px/1 var(--mono);
+  color: var(--muted);
+}
+
+.task-card {
+  display: grid;
+  width: 100%;
+  gap: 6px;
+  margin-top: 9px;
+  padding: 10px;
+  text-align: left;
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  background: var(--white);
+  cursor: pointer;
+}
+
+.task-card:hover,
+.task-card.selected {
+  border-color: var(--ink);
+}
+
+.task-card strong {
+  font: 600 13px/1.3 var(--serif);
+}
+
+.task-card small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.task-detail {
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--card);
+  padding: 15px;
+  min-height: 360px;
+}
+
+.task-detail > header {
+  display: grid;
+  gap: 7px;
+}
+
+.task-detail h2 {
+  font: 600 20px/1.2 var(--serif);
+}
+
+.task-detail > header p {
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.task-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.task-messages {
+  list-style: none;
+  margin: 0;
+  padding: 8px 0;
+  display: grid;
+  gap: 8px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.task-messages li {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.task-messages header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.task-messages time {
+  color: var(--muted);
+  font: 10px/1 var(--mono);
+}
+
+.task-messages p {
+  margin-top: 3px;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  white-space: pre-wrap;
+}
+
+.task-compose {
+  display: grid;
+  gap: 7px;
+  padding-top: 8px;
+}
+
+.task-compose textarea,
+.task-new input,
+.task-new select {
+  width: 100%;
+  border: 1px solid var(--rule-2);
+  border-radius: 4px;
+  background: var(--white);
+  padding: 7px 8px;
+}
+
+.task-new {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 160px auto;
+  gap: 10px;
+  align-items: end;
+  margin-top: 18px;
+  padding: 13px;
+  border-top: 1px dashed var(--rule-2);
+}
+
+.task-new label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font: 11px/1.2 var(--mono);
+}
+
 .tabs {
   display: inline-flex;
   border: 1px solid var(--rule-2);
@@ -3083,6 +3244,10 @@ kbd {
   .demo-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+
+  .team-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 760px) {
@@ -3126,6 +3291,10 @@ kbd {
   .hero-metric {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .task-new {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

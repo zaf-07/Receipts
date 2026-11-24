@@ -12,8 +12,9 @@ import { GraphView } from './views/GraphView';
 import { Competitors } from './views/Competitors';
 import { LeadDrawer } from './views/LeadDrawer';
 import { DemoPanel } from './views/DemoPanel';
+import { Team } from './views/Team';
 
-const VIEWS = ['intake', 'accounts', 'review', 'not-yet', 'pipeline', 'dashboard', 'graph', 'competitors'] as const;
+const VIEWS = ['intake', 'accounts', 'review', 'not-yet', 'pipeline', 'team', 'dashboard', 'graph', 'competitors'] as const;
 type View = (typeof VIEWS)[number];
 
 const LABEL: Record<View, string> = {
@@ -22,6 +23,7 @@ const LABEL: Record<View, string> = {
   review: 'Review queue',
   'not-yet': 'Not yet',
   pipeline: 'Pipeline',
+  team: 'Agent team',
   dashboard: 'Dashboard',
   graph: 'Graph',
   competitors: 'Competitors',
@@ -199,6 +201,7 @@ export function App() {
           {view === 'review' && <Review />}
           {view === 'not-yet' && <NotYet />}
           {view === 'pipeline' && <Pipeline />}
+          {view === 'team' && <Team />}
           {view === 'dashboard' && <Dashboard />}
           {view === 'graph' && <GraphView />}
           {view === 'competitors' && <Competitors />}

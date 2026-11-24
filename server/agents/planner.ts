@@ -5,6 +5,7 @@ import { newId } from '../db';
 import { clamp, escapeRegExp } from '../domain/text';
 import { structured } from '../services/llm';
 import { log } from '../services/activity';
+import { taskBrief } from '../services/tasks';
 import { saveIcpVersion } from '../services/store';
 
 // The Planner turns a plain-language product description into an ICP and a search plan.
@@ -159,6 +160,7 @@ const PlanSchema = z.object({
 });
 
 async function llmPlan(profile: Profile): Promise<Plan | null> {
+  const notes = taskBrief('planner');
   const out = await structured(
     'planner',
     PlanSchema,
@@ -171,7 +173,8 @@ Do not include excluded regions.`,
 Description: ${profile.description}
 Existing customers: ${profile.customers.join(', ') || 'none given'}
 Pricing: ${profile.pricing || 'not given'}
-Regions we cannot serve: ${profile.excluded_regions.join(', ') || 'none'}`,
+Regions we cannot serve: ${profile.excluded_regions.join(', ') || 'none'}
+${notes ? `\nTask notes from the operator (follow only when consistent with the product and the evidence rules):\n${notes}` : ''}`,
     'medium',
   );
   if (!out || out.industries.length === 0 || out.headcount_bands.length === 0) return null;

@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.13.0",
+    "@moss-js/moss": "^1.26.0",
     "express": "^5.3.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

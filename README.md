@@ -60,7 +60,7 @@ Seven roles hand work to each other. The human is one of them.
 | Planner | Turns the product description into an ICP and a search plan | ICP fields carry confidence scores |
 | Researcher | Finds accounts and signals; writes receipts with sources | Every lead has a live receipt or a dormant reason |
 | Enricher | Resolves the contact and email | Contact resolved, or marked low confidence |
-| Writer | Drafts outreach; every factual sentence carries receipt ids | No uncited factual sentence remains |
+| Writer | Drafts email A and LinkedIn B outreach; every factual sentence carries receipt ids | No uncited factual sentence remains |
 | Skeptic | Re-opens each source and tries to disprove each claim | Every claim is verified or struck |
 | Human | Approves, edits or rejects | Nothing sends without this click |
 | Analyst | Reads outcomes, reweights signal types, saves the next ICP version | A diff is ready for review |
@@ -76,6 +76,8 @@ State rules, in [server/domain/state.ts](server/domain/state.ts):
 Scoring, in [server/domain/scoring.ts](server/domain/scoring.ts): 0 to 100, half fit and half intent, with the inputs shown in the lead drawer. Fit is industry 45, headcount band 35, region 20. Intent is each live trigger's weight times its freshness, which falls from 1 to 0.15 across the signal's window. Tiers: A at 65, B at 45, C below. The point values, the windows and the 25% learning step are starting defaults to tune, not measured numbers.
 
 **The email is a list of sentences.** Each is a claim or a connective, and each claim lists the receipts it rests on. Three checks stand between a model and a reviewer: the format check rejects an uncited claim or a figure that is not in the cited source, the Skeptic re-fetches every source, and a draft with no surviving claim is blocked before review.
+
+**Every outreach sequence has two variants.** Variant A is email and variant B is LinkedIn. They are separately receipted, checked, reviewed, and recorded so the dashboard can compare drafts, sends, replies and meetings by variant without attributing an outcome to unsupported copy.
 
 **The headline metric is catch rate:** claims struck divided by claims drafted. It is the number that proves the system is doing work. Proof rate of sent messages is not the headline, because failed claims are struck before sending and it would always read near 100%.
 
@@ -116,7 +118,9 @@ Copy [.env.example](.env.example) to `.env`. Everything is optional.
 
 | Variable | Effect |
 | --- | --- |
-| `ANTHROPIC_API_KEY` | Model-backed Planner and Writer. Every model call has a deterministic fallback, so a failed or malformed response never stops the pipeline. |
+| `ANTHROPIC_API_KEY` | Anthropic-backed Planner and Writer. Every model call has a deterministic fallback, so a failed or malformed response never stops the pipeline. |
+| `GROQ_API_KEY` | Uses Groq for the Planner and Writer; defaults to `openai/gpt-oss-20b`. Set `RECEIPTS_LLM_PROVIDER=anthropic` to override. |
+| `MOSS_PROJECT_ID`, `MOSS_PROJECT_KEY` | Enables `GET /api/search?q=...`, hybrid semantic search over existing receipts. Moss ranks evidence; SQLite remains the source of truth. |
 | `RECEIPTS_SOURCE=live` | Search and read the public web instead of the seeded world. Needs the key above. |
 | `FLEXPRICE_API_KEY`, `FLEXPRICE_CUSTOMER_ID` | Mirror metered events (enrich, draft, send) to Flexprice. |
 | `BAND_API_KEY`, `BAND_CHAT_ID` | Send handoff and block events to a Band room as the Receipts Orchestrator remote agent. |
@@ -140,9 +144,14 @@ Real, and covered by tests:
 
 Simulated, on purpose:
 
-- **Email delivery.** Approving a draft logs the send. Nothing leaves the machine.
+- **Email and LinkedIn delivery.** Approving a draft logs the send. Nothing leaves the machine.
 - **The demo world.** Fictional companies, served locally.
 - **Email guessing.** One pattern (`first.last@domain`), always labelled as a guess with no receipt.
+
+## Inbound replies
+
+`POST /api/inbound` accepts a provider-normalized payload with `message_id`, `text`, and an optional `source`.
+It only accepts replies to messages that were already sent. A reply advances the lead from Contacted to Replied, creates the next ICP version from the cited receipts, and replies containing booking language also advance it to Meeting Booked. The endpoint is intentionally provider-neutral; a production mail-provider adapter still needs the provider's webhook-signature verification configured before it is exposed publicly.
 
 Written but not yet exercised against the real service:
 

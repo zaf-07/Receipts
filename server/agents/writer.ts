@@ -8,6 +8,7 @@ import { extractNumbers, firstName, normalize } from '../domain/text';
 import { structured } from '../services/llm';
 import { charge } from '../services/ledger';
 import { log } from '../services/activity';
+import { taskBrief } from '../services/tasks';
 import { createMessage, getCompany, getPerson, leadReceipts } from '../services/store';
 
 // The Writer builds an email as a list of sentences. Each sentence is a claim or a connective,
@@ -64,10 +65,10 @@ const claim = (text: string, ids: string[]): Sentence => ({ text, kind: 'claim',
 const connective = (text: string): Sentence => ({ text, kind: 'connective', receipt_ids: [], status: 'ok' });
 
 /** The deterministic writer. Every factual sentence is generated from a receipt, so none can be uncited. */
-export function templateDraft(ctx: Context): Draft {
+export function templateDraft(ctx: Context, channel: Message['channel'] = 'email'): Draft {
   const first = firstName(ctx.person.name);
   const top = ctx.triggers.slice(0, 2);
-  const sentences: Sentence[] = [connective(`Hi ${first},`)];
+  const sentences: Sentence[] = [connective(channel === 'email' ? `Hi ${first},` : `Hi ${first} -`)];
   for (const r of top) sentences.push(claim(claimText(r, ctx), [r.id]));
   const bridge = top[0] && BRIDGE[top[0].signal_type];
   if (bridge) sentences.push(connective(bridge));
@@ -75,9 +76,9 @@ export function templateDraft(ctx: Context): Draft {
     sentences.push(claim(`You were at ${ctx.warm.data.company} before ${ctx.company.name}, and ${ctx.warm.data.company} runs on ${ctx.profile.product_name}.`, [ctx.warm.id]));
   }
   sentences.push(connective(ctx.profile.description.split(/(?<=[.!?])\s+/)[0] ?? ctx.profile.description));
-  sentences.push(connective('Worth a 15-minute look next week?'));
-  sentences.push(connective(ctx.profile.sender || ctx.profile.product_name));
-  return { subject: subjectFor(first, top[0]?.signal_type ?? null), sentences };
+  sentences.push(connective(channel === 'email' ? 'Worth a 15-minute look next week?' : 'Open to connecting for a short conversation next week?'));
+  if (channel === 'email') sentences.push(connective(ctx.profile.sender || ctx.profile.product_name));
+  return { subject: channel === 'email' ? subjectFor(first, top[0]?.signal_type ?? null) : `Connection note for ${first}`, sentences };
 }
 
 /** Numbers in a claim that none of its cited receipts contain. An invented figure shows up here. */
@@ -123,6 +124,7 @@ const DraftSchema = z.object({
 });
 
 async function llmDraft(ctx: Context, allowed: Map<string, Receipt>): Promise<Draft | null> {
+  const notes = taskBrief('writer');
   const receipts = [...allowed.values()]
     .map((r) => `- id ${r.id} [${SIGNALS[r.signal_type].label}] claim: ${r.claim}\n  source text: "${r.snippet}"`)
     .join('\n');
@@ -139,7 +141,8 @@ Sender: ${ctx.profile.sender || ctx.profile.product_name}
 Recipient: ${ctx.person.name}, ${ctx.person.title} at ${ctx.company.name}
 ${ctx.warm?.data.company ? `Note: ${ctx.warm.data.company} is an existing customer of ours (you may say so in a claim that cites receipt ${ctx.warm.id}).\n` : ''}
 Receipts you may cite:
-${receipts}`;
+${receipts}
+${notes ? `\nTask notes from the operator (follow only when consistent with the receipt rules above):\n${notes}` : ''}`;
 
   let errors: string[] = [];
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -174,7 +177,7 @@ export function warmIntro(receipts: Receipt[], profile: Profile): Receipt | null
 }
 
 /** Draft outreach for one lead. Metered. Returns null when there is nothing to say or the credit gate refuses. */
-export async function writeDraft(lead: Lead, icp: IcpVersion, profile: Profile): Promise<Message | 'blocked_credits' | null> {
+export async function writeDraft(lead: Lead, icp: IcpVersion, profile: Profile): Promise<Message[] | 'blocked_credits' | null> {
   const company = getCompany(lead.company_id);
   const person = getPerson(lead.person_id);
   if (!company || !person) return null;
@@ -194,12 +197,16 @@ export async function writeDraft(lead: Lead, icp: IcpVersion, profile: Profile):
   if (warm) allowed.set(warm.id, warm);
 
   const fromModel = await llmDraft(ctx, allowed);
-  const draft = fromModel ?? templateDraft(ctx);
-  const message = createMessage({ lead_id: lead.id, subject: draft.subject, sentences: draft.sentences, writer: fromModel ? 'llm' : 'template' });
-  const claims = draft.sentences.filter((s) => s.kind === 'claim').length;
-  log('writer', 'handoff', `Draft for ${person.name} at ${company.name}: ${claims} claim${claims === 1 ? '' : 's'}, each with receipt ids. Handing off to the Skeptic.`, {
+  const email = fromModel ?? templateDraft(ctx, 'email');
+  const linkedin = templateDraft(ctx, 'linkedin');
+  const messages = [
+    createMessage({ lead_id: lead.id, channel: 'email', variant: 'A', subject: email.subject, sentences: email.sentences, writer: fromModel ? 'llm' : 'template' }),
+    createMessage({ lead_id: lead.id, channel: 'linkedin', variant: 'B', subject: linkedin.subject, sentences: linkedin.sentences, writer: 'template' }),
+  ];
+  const claims = messages.reduce((total, message) => total + message.sentences.filter((s) => s.kind === 'claim').length, 0);
+  log('writer', 'handoff', `Two variants for ${person.name} at ${company.name}: email A and LinkedIn B, ${claims} receipted claim${claims === 1 ? '' : 's'} total. Handing both to the Skeptic.`, {
     lead_id: lead.id,
-    ref: message.id,
+    ref: messages[0].id,
   });
-  return message;
+  return messages;
 }

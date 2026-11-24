@@ -10,6 +10,7 @@ import type {
   ReceiptView,
   SegmentRow,
   Snapshot,
+  VariantMetric,
   WhyStep,
 } from '../../shared/types';
 import { SIGNALS, bandFor } from '../../shared/constants';
@@ -23,6 +24,7 @@ import { bandEnabled } from '../integrations/band';
 import { unsupportedFigures, warmIntro } from '../agents/writer';
 import { recentActivity } from './activity';
 import { balance, countOps, recentLedger } from './ledger';
+import { listTaskMessages, listTasks } from './tasks';
 import {
   allReceipts,
   currentIcp,
@@ -53,13 +55,15 @@ export function buildLeads(): LeadView[] {
     const own = transitions.filter((t) => t.lead_id === lead.id);
     const into = [...own].reverse().find((t) => t.to_stage === lead.stage);
     const warm = profile ? warmIntro(receipts, profile) : null;
+    const ownMessages = messages.filter((m) => m.lead_id === lead.id);
     return {
       ...lead,
       company,
       person,
       receipts: receipts.map((r) => view(r, at)),
       transitions: own,
-      message: messages.filter((m) => m.lead_id === lead.id).pop() ?? null,
+      message: ownMessages.find((m) => m.status === 'pending_review') ?? ownMessages[0] ?? null,
+      messages: ownMessages,
       stage_actor: into?.actor_type ?? null,
       warm_intro: warm?.data.company ?? null,
     };
@@ -97,6 +101,23 @@ export function buildMetrics(leads: LeadView[]): Metrics {
     }
     return [...rows.values()].sort((a, b) => b.matched - a.matched || a.segment.localeCompare(b.segment));
   };
+  const variants: VariantMetric[] = (['A', 'B'] as const).map((variant) => {
+    const rows = messages.filter((m) => m.variant === variant);
+    const sentRows = rows.filter((m) => m.status === 'sent');
+    const outcome = (message: (typeof sentRows)[number], stage: 'Replied' | 'Meeting Booked') =>
+      leads.find((lead) => lead.id === message.lead_id)?.transitions.some((transition) => transition.to_stage === stage) ?? false;
+    const replied = sentRows.filter((m) => outcome(m, 'Replied')).length;
+    const meetings = sentRows.filter((m) => outcome(m, 'Meeting Booked')).length;
+    return {
+      variant,
+      channel: variant === 'A' ? 'email' : 'linkedin',
+      drafted: rows.length,
+      sent: sentRows.length,
+      replied,
+      meetings,
+      reply_rate: sentRows.length ? replied / sentRows.length : null,
+    };
+  });
 
   return {
     claims_drafted: claims.length,
@@ -112,6 +133,7 @@ export function buildMetrics(leads: LeadView[]): Metrics {
     meetings: leads.filter((l) => l.stage === 'Meeting Booked' || l.stage === 'Closed').length,
     by_industry: segment((l) => l.company.industry ?? 'Unknown'),
     by_tier: segment((l) => `Tier ${l.tier}`).sort((a, b) => a.segment.localeCompare(b.segment)),
+    variants,
     usage: {
       leads_enriched: countOps('enrich'),
       drafts_generated: countOps('draft'),
@@ -143,6 +165,8 @@ export function buildSnapshot(running: string | null): Snapshot {
     competitors: buildCompetitors(),
     metrics: buildMetrics(leads),
     activity: recentActivity(),
+    tasks: listTasks(),
+    task_messages: listTaskMessages(),
     world: { pages: config.source === 'world' ? listWorldPages() : [], pending_batches: pendingBatches() },
   };
 }

@@ -9,7 +9,7 @@ import {
   currentIcp,
   getCompany,
   getLead,
-  latestMessage,
+  messagesForLead,
   listLeads,
   receiptsFor,
   updateLead,
@@ -69,8 +69,7 @@ export function recomputeLead(leadId: string, opts: { announce?: boolean; keepDr
 
   // No receipt, no action: a draft waiting for review cannot outlive the reason it was written.
   if (derived.state !== 'active' && !opts.keepDraft) {
-    const message = latestMessage(lead.id);
-    if (message && (message.status === 'pending_review' || message.status === 'draft')) {
+    for (const message of messagesForLead(lead.id).filter((m) => m.status === 'pending_review' || m.status === 'draft')) {
       updateMessage(message.id, {
         status: 'blocked',
         block_reason: derived.state === 'disqualified' ? `Lead disqualified: ${derived.reason}` : `No live receipt left. ${derived.reason}`,

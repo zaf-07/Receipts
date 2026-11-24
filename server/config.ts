@@ -5,13 +5,15 @@ try {
 }
 
 const env = process.env;
+const provider = (env.RECEIPTS_LLM_PROVIDER ?? (env.GROQ_API_KEY ? 'groq' : 'anthropic')) as 'anthropic' | 'groq';
 
 export const config = {
   port: Number(env.PORT ?? 8787),
   /** Absolute origin used in receipt source URLs. Set once the server is listening. */
   baseUrl: env.PUBLIC_URL ?? '',
   dbPath: env.RECEIPTS_DB ?? 'data/receipts.db',
-  model: env.RECEIPTS_MODEL ?? 'claude-opus-5-5',
+  provider,
+  model: env.RECEIPTS_MODEL ?? (provider === 'groq' ? 'openai/gpt-oss-20b' : 'claude-opus-5-5'),
   /** auto = use the LLM when credentials exist, off = always use the deterministic agents. */
   llm: (env.RECEIPTS_LLM ?? 'auto') as 'auto' | 'off',
   /** world = seeded local world the Skeptic can really re-fetch, live = the public web (needs the LLM). */
@@ -36,8 +38,17 @@ export const config = {
     chatId: env.BAND_CHAT_ID ?? '',
     baseUrl: (env.BAND_API_BASE_URL ?? 'https://app.band.ai/api/v1').replace(/\/$/, ''),
   },
+  moss: {
+    projectId: env.MOSS_PROJECT_ID ?? '',
+    projectKey: env.MOSS_PROJECT_KEY ?? '',
+  },
 };
 
 export function llmEnabled(): boolean {
-  return config.llm !== 'off' && Boolean(env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN);
+  const credential = config.provider === 'groq' ? env.GROQ_API_KEY : env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN;
+  return config.llm !== 'off' && Boolean(credential);
+}
+
+export function mossEnabled(): boolean {
+  return Boolean(config.moss.projectId && config.moss.projectKey);
 }

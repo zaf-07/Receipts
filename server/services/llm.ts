@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
-import type { z } from 'zod';
+import { type z, toJSONSchema } from 'zod';
 import { config, llmEnabled } from '../config';
 
 let client: Anthropic | null = null;
@@ -11,6 +11,39 @@ function report(where: string, err: unknown): void {
   else if (err instanceof Anthropic.RateLimitError) console.warn(`[llm] ${where}: rate limited`);
   else if (err instanceof Anthropic.APIError) console.warn(`[llm] ${where}: API error ${err.status}: ${err.message}`);
   else console.warn(`[llm] ${where}: ${String(err)}`);
+}
+
+/** Groq's OpenAI-compatible endpoint. Zod still validates every response before callers use it. */
+async function groqStructured<S extends z.ZodType>(where: string, schema: S, system: string, user: string): Promise<z.infer<S> | null> {
+  const key = process.env.GROQ_API_KEY;
+  if (!key) return null;
+  try {
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: config.model,
+        temperature: 0,
+        max_completion_tokens: 16_000,
+        messages: [
+          { role: 'system', content: `${system}\n\nReturn only JSON that conforms to the requested schema.` },
+          { role: 'user', content: user },
+        ],
+        response_format: { type: 'json_schema', json_schema: { name: `${where}_output`, strict: false, schema: toJSONSchema(schema) } },
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const body = (await response.json()) as { choices?: Array<{ message?: { content?: string | null } }> };
+    const content = body.choices?.[0]?.message?.content;
+    if (!content) throw new Error('empty completion');
+    const parsed = schema.safeParse(JSON.parse(content));
+    if (!parsed.success) throw new Error(`response failed schema validation: ${parsed.error.issues[0]?.message ?? 'unknown error'}`);
+    return parsed.data;
+  } catch (err) {
+    report(`groq ${where}`, err);
+    return null;
+  }
 }
 
 /**
@@ -25,6 +58,7 @@ export async function structured<S extends z.ZodType>(
   effort: 'low' | 'medium' | 'high' = 'low',
 ): Promise<z.infer<S> | null> {
   if (!llmEnabled()) return null;
+  if (config.provider === 'groq') return groqStructured(where, schema, system, user);
   try {
     const res = await anthropic().messages.parse({
       model: config.model,
@@ -52,6 +86,10 @@ export interface WebResult {
 /** Live-web search through the hosted web search tool. Returns result URLs only; we fetch pages ourselves. */
 export async function webSearch(query: string, maxResults = 6): Promise<WebResult[]> {
   if (!llmEnabled()) return [];
+  if (config.provider === 'groq') {
+    console.warn('[llm] web search is not configured for the Groq provider; use RECEIPTS_SOURCE=world or add a search integration.');
+    return [];
+  }
   try {
     const res = await anthropic().messages.create({
       model: config.model,

@@ -29,6 +29,48 @@ export interface SeedSite {
 const p = (...paragraphs: string[]) => paragraphs.map((t) => `<p>${t}</p>`).join('\n');
 const people = (...rows: string[]) => `<ul class="people">\n${rows.map((r) => `<li>${r}</li>`).join('\n')}\n</ul>`;
 
+// Additional dormant accounts make the demo grid and graph representative without consuming
+// enrichment credits before a fresh signal arrives. Their old funding receipts remain auditable.
+const SUPPLEMENTAL_INPUTS: Array<[slug: string, name: string, industry: string, headcount: number, hq: string]> = [
+  ['arcforge', 'Arcforge', 'AI / ML', 75, 'Seattle, Washington'],
+  ['bristle-api', 'Bristle API', 'Developer Tools', 110, 'Austin, Texas'],
+  ['cindercloud', 'Cindercloud', 'SaaS', 180, 'Denver, Colorado'],
+  ['docketwise', 'Docketwise', 'Fintech', 240, 'New York, New York'],
+  ['embercart', 'Embercart', 'E-commerce', 95, 'Chicago, Illinois'],
+  ['freightline', 'Freightline', 'Logistics', 310, 'Toronto, Canada'],
+  ['glacier-security', 'Glacier Security', 'Cybersecurity', 130, 'Boston, Massachusetts'],
+  ['harbor-health', 'Harbor Health', 'Healthcare', 420, 'San Francisco, California'],
+  ['inkwell-media', 'Inkwell Media', 'Media', 65, 'Los Angeles, California'],
+  ['juniper-edtech', 'Juniper Edtech', 'Education', 155, 'London, United Kingdom'],
+  ['keystone-payments', 'Keystone Payments', 'Fintech', 280, 'Miami, Florida'],
+  ['latticeflow', 'Latticeflow', 'AI / ML', 105, 'Berlin, Germany'],
+  ['meridian-sdk', 'Meridian SDK', 'Developer Tools', 58, 'Dublin, Ireland'],
+  ['nimbus-workflows', 'Nimbus Workflows', 'SaaS', 205, 'Amsterdam, Netherlands'],
+  ['opal-commerce', 'Opal Commerce', 'E-commerce', 145, 'Madrid, Spain'],
+  ['portside-logistics', 'Portside Logistics', 'Logistics', 360, 'Vancouver, Canada'],
+];
+
+const SUPPLEMENTAL_SITES: SeedSite[] = SUPPLEMENTAL_INPUTS.map(([slug, name, industry, headcount, hq]) => ({
+  slug,
+  name,
+  domain: `${slug}.example`,
+  pages: [
+    {
+      path: 'about',
+      kind: 'about' as const,
+      title: `About ${name}`,
+      body: p(`${name} builds ${industry.toLowerCase()} software for operations teams.`, `${name} has ${headcount} employees and is headquartered in ${hq}.`),
+    },
+    {
+      path: 'news/funding',
+      kind: 'news' as const,
+      title: `${name} funding news`,
+      daysAgo: 500,
+      body: p(`${name} raises $6 million seed round to expand its product team.`, 'The company announced the round last year.'),
+    },
+  ],
+}));
+
 export const SEED_SITES: SeedSite[] = [
   {
     slug: 'northbeam',
@@ -511,6 +553,7 @@ export const SEED_SITES: SeedSite[] = [
       },
     ],
   },
+  ...SUPPLEMENTAL_SITES,
 ];
 
 /** The example intake that matches the seeded world. */

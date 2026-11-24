@@ -105,6 +105,7 @@ CREATE TABLE IF NOT EXISTS messages (
   id TEXT PRIMARY KEY,
   lead_id TEXT NOT NULL,
   channel TEXT NOT NULL DEFAULT 'email',
+  variant TEXT NOT NULL DEFAULT 'A',
   subject TEXT NOT NULL,
   sentences TEXT NOT NULL,
   status TEXT NOT NULL,
@@ -135,6 +136,26 @@ CREATE TABLE IF NOT EXISTS activity (
   ref TEXT
 );
 
+CREATE TABLE IF NOT EXISTS agent_tasks (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  detail TEXT NOT NULL,
+  agent TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'todo',
+  depends_on TEXT NOT NULL DEFAULT '[]',
+  lead_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS agent_task_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id TEXT NOT NULL,
+  author TEXT NOT NULL,
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS world_pages (
   id TEXT PRIMARY KEY,
   site TEXT NOT NULL,
@@ -163,6 +184,8 @@ const TABLES = [
   'messages',
   'ledger',
   'activity',
+  'agent_tasks',
+  'agent_task_messages',
   'world_pages',
 ];
 
@@ -174,6 +197,8 @@ export function initDb(path: string): void {
   db = new DatabaseSync(path);
   if (path !== ':memory:') db.exec('PRAGMA journal_mode = WAL;');
   db.exec(SCHEMA);
+  const messageColumns = db.prepare('PRAGMA table_info(messages)').all() as { name: string }[];
+  if (!messageColumns.some((column) => column.name === 'variant')) db.exec("ALTER TABLE messages ADD COLUMN variant TEXT NOT NULL DEFAULT 'A'");
 }
 
 function clean(params: unknown[]): Param[] {

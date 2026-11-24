@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
+import { once } from 'node:events';
 import type { Profile, Stage } from '../shared/types';
 import { REGIONS } from '../shared/constants';
 import { config } from './config';
@@ -10,7 +11,8 @@ import { initDb } from './db';
 import { changed, log, subscribe } from './services/activity';
 import { balance, credit } from './services/ledger';
 import { buildGraph, buildSnapshot, contrastEmail, whyNow } from './services/snapshot';
-import { latestMessage } from './services/store';
+import { searchPipeline } from './services/moss';
+import { getProfile, latestMessage } from './services/store';
 import {
   UserError,
   activateIcp,
@@ -23,6 +25,7 @@ import {
   intake,
   moveClock,
   moveLead,
+  receiveInboundReply,
   reject,
   resetDemo,
   resume,
@@ -33,6 +36,7 @@ import {
 import { setPageStatus, seedWorld, worldRouter, worldSeeded } from './world/world';
 import { EXAMPLE_PROFILE } from './world/seed';
 import { AGENT_ROLES, bandEnabled } from './integrations/band';
+import { addTaskMessage, createTask, ensurePipelineTasks, setTaskStatus } from './services/tasks';
 
 const text = (v: unknown, max = 4000) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 const list = (v: unknown) =>
@@ -88,7 +92,41 @@ export function createApp() {
     if (!profile.product_name || profile.description.length < 20) {
       throw new UserError('Give the product a name and a description of at least a sentence.');
     }
-    res.json(await intake(profile));
+    const icp = await intake(profile);
+    ensurePipelineTasks();
+    res.json(icp);
+  });
+
+  api.post('/tasks', (req, res) => {
+    try {
+      res.status(201).json(
+        createTask({
+          title: text(req.body.title, 160),
+          detail: text(req.body.detail, 1200),
+          agent: text(req.body.agent, 40),
+          depends_on: Array.isArray(req.body.depends_on) ? req.body.depends_on.map((id: unknown) => text(id, 120)) : [],
+          lead_id: text(req.body.lead_id, 120) || null,
+        }),
+      );
+    } catch (err) {
+      throw new UserError(err instanceof Error ? err.message : 'Could not create the task.');
+    }
+  });
+
+  api.post('/tasks/:id/status', (req, res) => {
+    try {
+      res.json(setTaskStatus(req.params.id, text(req.body.status, 20)));
+    } catch (err) {
+      throw new UserError(err instanceof Error ? err.message : 'Could not update the task.');
+    }
+  });
+
+  api.post('/tasks/:id/messages', (req, res) => {
+    try {
+      res.status(201).json(addTaskMessage(req.params.id, { author: text(req.body.author, 80) || 'Human', body: text(req.body.body, 1600) }));
+    } catch (err) {
+      throw new UserError(err instanceof Error ? err.message : 'Could not send the message.');
+    }
   });
 
   api.post('/icp/expansions/:id', (req, res) => {
@@ -119,6 +157,12 @@ export function createApp() {
   });
 
   api.get('/graph', (_req, res) => res.json(buildGraph()));
+  api.get('/search', async (req, res) => {
+    const query = text(req.query.q, 500);
+    if (query.length < 3) throw new UserError('Use at least three characters to search the pipeline.');
+    const limit = Math.min(20, Math.max(1, Math.round(Number(req.query.limit) || 8)));
+    res.json({ query, results: await searchPipeline(query, limit) });
+  });
   api.get('/leads/:id/why', (req, res) => res.json(whyNow(req.params.id)));
   api.get('/leads/:id/contrast', (req, res) => res.json(contrastEmail(req.params.id)));
 
@@ -148,6 +192,14 @@ export function createApp() {
       ? req.body.sentences.map((s: { index: unknown; text: unknown }) => ({ index: Number(s.index), text: text(s.text, 600) }))
       : [];
     res.json(await editDraft(req.params.id, text(req.body.subject, 200), kept, text(req.body.reviewer, 80) || 'Reviewer'));
+  });
+
+  /** Provider adapters POST the Receipts message id and the plain-text reply here. */
+  api.post('/inbound', (req, res) => {
+    const messageId = text(req.body.message_id, 120);
+    const reply = text(req.body.text, 4000);
+    if (!messageId || !reply) throw new UserError('message_id and reply text are required.');
+    res.json(receiveInboundReply(messageId, reply, text(req.body.source, 80) || 'inbound webhook'));
   });
 
   api.post('/credits/topup', (req, res) => {
@@ -204,16 +256,19 @@ export function createApp() {
 export async function start(opts: { port?: number; dbPath?: string } = {}): Promise<{ server: Server; port: number; stop: () => Promise<void> }> {
   initDb(opts.dbPath ?? config.dbPath);
   const app = createApp();
-  const server = await new Promise<Server>((ok) => {
-    const s = app.listen(opts.port ?? config.port, () => ok(s));
-  });
-  const port = (server.address() as AddressInfo).port;
+  const server = app.listen(opts.port ?? config.port);
+  await once(server, 'listening');
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Server did not expose a TCP address after listening.');
+  const port = (address as AddressInfo).port;
   if (!process.env.PUBLIC_URL) config.baseUrl = `http://localhost:${port}`;
 
   if (!worldSeeded()) {
     seedWorld();
     if (balance() === 0) credit(config.startingCredits, 'grant', 'Starting credits');
   }
+  // Existing demo databases may predate the team board. Give them the same starter plan on boot.
+  if (getProfile()) ensurePipelineTasks();
 
   // Receipts expire on their own, so the state rules also run on a clock tick.
   const timer = setInterval(tick, 30_000);

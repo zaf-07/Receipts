@@ -182,11 +182,13 @@ export interface Sentence {
 }
 
 export type MessageStatus = 'draft' | 'pending_review' | 'blocked' | 'sent' | 'rejected';
+export type MessageVariant = 'A' | 'B';
 
 export interface Message {
   id: string;
   lead_id: string;
   channel: 'email' | 'linkedin';
+  variant: MessageVariant;
   subject: string;
   sentences: Sentence[];
   status: MessageStatus;
@@ -229,6 +231,30 @@ export interface ActivityEntry {
   ref: string | null;
 }
 
+/** A durable unit of work handed to one specialist agent. Dependencies prevent a task from starting early. */
+export type AgentTaskStatus = 'todo' | 'doing' | 'blocked' | 'review' | 'done';
+
+export interface AgentTask {
+  id: string;
+  title: string;
+  detail: string;
+  agent: AgentName;
+  status: AgentTaskStatus;
+  depends_on: string[];
+  lead_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A short instruction or handoff note. Messages belong to a task, so agent communication stays auditable. */
+export interface AgentTaskMessage {
+  id: number;
+  task_id: string;
+  author: string;
+  body: string;
+  created_at: string;
+}
+
 export interface Profile {
   product_name: string;
   description: string;
@@ -244,6 +270,7 @@ export interface LeadView extends Lead {
   receipts: ReceiptView[];
   transitions: StageTransition[];
   message: Message | null;
+  messages: Message[];
   /** Who moved the card into its current stage. Drives the AI / rep badge. */
   stage_actor: 'agent' | 'rep' | null;
   warm_intro: string | null;
@@ -274,7 +301,18 @@ export interface Metrics {
   meetings: number;
   by_industry: SegmentRow[];
   by_tier: SegmentRow[];
+  variants: VariantMetric[];
   usage: { leads_enriched: number; drafts_generated: number; outreach_sent: number; graph_queries: number };
+}
+
+export interface VariantMetric {
+  variant: MessageVariant;
+  channel: Message['channel'];
+  drafted: number;
+  sent: number;
+  replied: number;
+  meetings: number;
+  reply_rate: number | null;
 }
 
 export interface WorldPageView {
@@ -307,6 +345,8 @@ export interface Snapshot {
   competitors: CompetitorView[];
   metrics: Metrics;
   activity: ActivityEntry[];
+  tasks: AgentTask[];
+  task_messages: AgentTaskMessage[];
   world: { pages: WorldPageView[]; pending_batches: number };
 }
 
@@ -349,4 +389,12 @@ export interface ContrastSentence {
   text: string;
   factual: boolean;
   verdict: string;
+}
+
+/** A retrieved receipt. Moss ranks the evidence; Receipts remains the source of truth. */
+export interface PipelineSearchResult {
+  receipt: ReceiptView;
+  company: Company;
+  lead_id: string | null;
+  score: number;
 }

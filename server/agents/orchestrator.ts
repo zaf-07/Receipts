@@ -7,6 +7,7 @@ import { isExpired, isLive, isTrigger } from '../domain/state';
 import { changed, log } from '../services/activity';
 import { balance, charge, credit } from '../services/ledger';
 import { moveStage, recomputeAll } from '../services/leads';
+import { markAgentTask } from '../services/tasks';
 import {
   currentIcp,
   getCompany,
@@ -17,6 +18,7 @@ import {
   getReceipt,
   latestMessage,
   leadReceipts,
+  messagesForLead,
   listIcpVersions,
   listLeads,
   saveProfile,
@@ -104,12 +106,13 @@ export function activateIcp(id: string): void {
 // ---------- pipeline ----------
 
 function needsDraft(lead: Lead): boolean {
-  const latest = latestMessage(lead.id);
-  if (!latest) return true;
-  if (latest.status !== 'blocked' && latest.status !== 'rejected') return false;
+  const messages = messagesForLead(lead.id);
+  if (messages.length === 0) return true;
+  if (messages.some((message) => message.status !== 'blocked' && message.status !== 'rejected')) return false;
   // A blocked or rejected draft is only retried when new evidence has arrived since.
   const at = now();
-  return leadReceipts(lead).some((r) => r.sign === 'positive' && isTrigger(r) && isLive(r, at) && r.seen_at > latest.created_at);
+  const newest = messages[messages.length - 1];
+  return leadReceipts(lead).some((r) => r.sign === 'positive' && isTrigger(r) && isLive(r, at) && r.seen_at > newest.created_at);
 }
 
 /**
@@ -118,6 +121,7 @@ function needsDraft(lead: Lead): boolean {
  */
 async function advance(): Promise<void> {
   const { profile, icp } = requireSetup();
+  markAgentTask('enricher', 'doing');
   for (const snapshot of listLeads()) {
     let lead = getLead(snapshot.id)!;
     if (lead.state !== 'active' || lead.stage !== 'Matched') continue;
@@ -129,22 +133,29 @@ async function advance(): Promise<void> {
     }
     if (!lead.person_id || !needsDraft(lead)) continue;
 
-    const message = await writeDraft(lead, icp, profile);
-    if (message === 'blocked_credits') return;
-    if (message) await reviewDraft(message.id);
+    const messages = await writeDraft(lead, icp, profile);
+    if (messages === 'blocked_credits') return;
+    if (messages) for (const message of messages) await reviewDraft(message.id);
   }
+  markAgentTask('enricher', 'done');
+  markAgentTask('writer', 'doing');
+  markAgentTask('writer', 'done');
+  markAgentTask('skeptic', 'doing');
+  markAgentTask('skeptic', 'done');
 }
 
 export function discover() {
   requireSetup();
   return exclusive('Discovery', async () => {
     const { profile, icp } = requireSetup();
+    markAgentTask('researcher', 'doing');
     await runResearcher(icp, profile, 'discovery');
     if (config.source === 'world') {
       // The world keeps moving between the Researcher's visit and the Skeptic's.
       for (const change of applyAfterCrawl()) log('world', 'info', `Demo world: ${change} after it was read.`);
     }
     log('researcher', 'handoff', 'Every lead has a live receipt or a dormant reason. Handing active leads to the Enricher.');
+    markAgentTask('researcher', 'done');
     await advance();
   });
 }
@@ -270,6 +281,42 @@ export function moveLead(leadId: string, to: Stage, actor: string, note: string 
   log('human', 'info', `${actor} moved ${getCompany(lead.company_id)?.name} from ${from} to ${to}${note ? `: ${note}` : ''}.`, { lead_id: leadId });
   if (to === 'Replied') runAnalyst(leadId);
   changed();
+}
+
+/**
+ * Process a reply received by a mail provider. This is deliberately provider-neutral:
+ * adapters only need to resolve their message to our message id and post the reply text.
+ * A booking-intent reply passes through Replied first so the stage history remains complete.
+ */
+export function receiveInboundReply(messageId: string, replyText: string, source = 'inbound webhook'): { stage: Stage; booking_intent: boolean } {
+  const message = getMessage(messageId);
+  if (!message) throw new UserError('Unknown message.');
+  if (message.status !== 'sent') throw new UserError('Inbound replies are accepted only for a sent message.');
+
+  const lead = getLead(message.lead_id)!;
+  if (lead.stage !== 'Contacted' && lead.stage !== 'Replied' && lead.stage !== 'Meeting Booked') {
+    throw new UserError(`This lead is ${lead.stage}, so an inbound reply cannot advance it.`);
+  }
+
+  const bookingIntent = /\b(book(?:ing|ed)?|schedule|calendar|meet(?:ing)?|demo|available|availability)\b/i.test(replyText);
+  const company = getCompany(lead.company_id)?.name ?? 'this lead';
+  const summary = replyText.replace(/\s+/g, ' ').trim().slice(0, 240);
+  const note = summary ? `${source}: ${summary}` : `${source}: reply received.`;
+
+  if (lead.stage === 'Contacted') {
+    moveStage(lead.id, 'Replied', 'agent', 'Inbound webhook', note);
+    log('system', 'handoff', `${company} replied${bookingIntent ? ' with booking intent' : ''}. Pipeline moved to Replied.`, {
+      lead_id: lead.id,
+      ref: message.id,
+    });
+    runAnalyst(lead.id);
+  }
+  if (bookingIntent && getLead(lead.id)!.stage === 'Replied') {
+    moveStage(lead.id, 'Meeting Booked', 'agent', 'Inbound webhook', 'Booking intent detected in inbound reply.');
+    log('system', 'done', `${company}: booking intent detected. Pipeline moved to Meeting Booked.`, { lead_id: lead.id, ref: message.id });
+  }
+  changed();
+  return { stage: getLead(lead.id)!.stage, booking_intent: bookingIntent };
 }
 
 // ---------- credits and demo controls ----------

@@ -4,6 +4,7 @@ import type {
   IcpVersion,
   Lead,
   Message,
+  MessageVariant,
   Person,
   Profile,
   Receipt,
@@ -354,19 +355,25 @@ export function listMessages(): Message[] {
   return all<MessageRow>('SELECT * FROM messages ORDER BY created_at, rowid').map(toMessage);
 }
 
+export function messagesForLead(leadId: string): Message[] {
+  return all<MessageRow>('SELECT * FROM messages WHERE lead_id = ? ORDER BY created_at, rowid', leadId).map(toMessage);
+}
+
 export function latestMessage(leadId: string): Message | null {
   const row = get<MessageRow>('SELECT * FROM messages WHERE lead_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1', leadId);
   return row ? toMessage(row) : null;
 }
 
-export function createMessage(input: Pick<Message, 'lead_id' | 'subject' | 'sentences' | 'writer'>): Message {
+export function createMessage(input: Pick<Message, 'lead_id' | 'channel' | 'variant' | 'subject' | 'sentences' | 'writer'>): Message {
   const id = newId('m');
   const at = nowIso();
   run(
-    `INSERT INTO messages (id, lead_id, channel, subject, sentences, status, writer, created_at, updated_at)
-     VALUES (?, ?, 'email', ?, ?, 'draft', ?, ?, ?)`,
+    `INSERT INTO messages (id, lead_id, channel, variant, subject, sentences, status, writer, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)`,
     id,
     input.lead_id,
+    input.channel,
+    input.variant,
     input.subject,
     input.sentences,
     input.writer,

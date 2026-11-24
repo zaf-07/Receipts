@@ -66,7 +66,7 @@ test('intake produces an ICP with a confidence on every field and two adjacent s
 test('discovery writes receipts, and every lead ends active or held back with a reason', async () => {
   await api('/run', {});
   const snap = await settled();
-  assert.equal(snap.leads.length, 12);
+  assert.equal(snap.leads.length, 28);
   assert.equal(snap.competitors.length, 2);
 
   for (const l of snap.leads) {
@@ -107,7 +107,7 @@ test('the Skeptic strikes a claim whose source was taken down, and blocks a draf
   assert.equal(fathom.state, 'not_yet');
   assert.equal(fathom.reason_code, 'failed_verification');
 
-  assert.equal(snap.metrics.claims_struck, 2);
+  assert.equal(snap.metrics.claims_struck, 4);
   assert.ok(snap.metrics.catch_rate! > 0.15 && snap.metrics.catch_rate! < 0.35);
 
   // Every claim a human will see rests on receipts the Skeptic verified against the live page.
@@ -152,9 +152,16 @@ test('nothing sends without approval; approving moves the card to Contacted with
   snap = await settled();
   assert.equal(lead(snap, 'Quillstack').stage, 'Contacted');
   assert.equal(lead(snap, 'Quillstack').stage_actor, 'agent');
-  assert.equal(lead(snap, 'Quillstack').message?.status, 'sent');
+  assert.equal(lead(snap, 'Quillstack').messages.filter((m) => m.status === 'sent').length, 1);
+  assert.deepEqual(
+    lead(snap, 'Quillstack').messages.map((m) => [m.variant, m.channel]),
+    [
+      ['A', 'email'],
+      ['B', 'linkedin'],
+    ],
+  );
   assert.equal(lead(snap, 'Cobalt Ledger').stage, 'Matched');
-  assert.equal(lead(snap, 'Cobalt Ledger').message?.status, 'rejected');
+  assert.equal(lead(snap, 'Cobalt Ledger').messages.filter((m) => m.status === 'rejected').length, 1);
   assert.equal(snap.metrics.messages_sent, 1);
   await assert.rejects(api(`/messages/${quill.message!.id}/approve`, { reviewer: 'Tester' }), /cannot be approved/);
 });
@@ -188,6 +195,19 @@ test('a reply raises the weight of the cited signal type and saves ICP v2', asyn
   assert.equal(lead(snap, 'Quillstack').stage_actor, 'rep');
   assert.equal(snap.metrics.replies, 1);
   assert.equal(snap.metrics.reply_rate, 1);
+});
+
+test('an inbound reply advances a sent message and detects booking intent', async () => {
+  // Approve another checked draft, then exercise the provider-neutral inbound path.
+  let snap = await settled();
+  const vectorly = lead(snap, 'Vectorly');
+  await api(`/messages/${vectorly.message!.id}/approve`, { reviewer: 'Tester' });
+  await api('/inbound', { message_id: vectorly.message!.id, text: 'Happy to schedule a demo next week.', source: 'test provider' });
+  snap = await settled();
+  assert.equal(lead(snap, 'Vectorly').stage, 'Meeting Booked');
+  assert.equal(lead(snap, 'Vectorly').stage_actor, 'agent');
+  assert.ok(lead(snap, 'Vectorly').transitions.some((t) => t.to_stage === 'Replied' && t.actor === 'Inbound webhook'));
+  assert.ok(lead(snap, 'Vectorly').transitions.some((t) => t.to_stage === 'Meeting Booked' && t.actor === 'Inbound webhook'));
 });
 
 test('receipts expire on their own and the lead goes back to not yet', async () => {
