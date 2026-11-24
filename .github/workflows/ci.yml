@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Typecheck, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  snyk:
+    # Dependency scan on the service that sends messages. Runs only when SNYK_TOKEN is configured.
+    name: Snyk scan
+    runs-on: ubuntu-latest
+    env:
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        if: env.SNYK_TOKEN != ''
+      - uses: actions/setup-node@v4
+        if: env.SNYK_TOKEN != ''
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+        if: env.SNYK_TOKEN != ''
+      - run: npx --yes snyk test --severity-threshold=high
+        if: env.SNYK_TOKEN != ''
+      - run: echo "SNYK_TOKEN is not set, so the scan was skipped."
+        if: env.SNYK_TOKEN == ''
