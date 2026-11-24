@@ -83,7 +83,8 @@ export async function enrichLead(lead: Lead, icp: IcpVersion): Promise<EnrichRes
     return 'unresolved';
   }
 
-  if (!charge('enrich', lead.id, `Enriching ${company.name}`, lead.id)) {
+  // One enrichment per lead, ever: a retried task finds the charge already made and does not pay again.
+  if (!charge('enrich', lead.id, `Enriching ${company.name}`, lead.id, true)) {
     updateLead(lead.id, {
       enrich_status: 'blocked_credits',
       enrich_note: `Enrichment needs ${config.costs.enrich} credits. Top up to continue.`,

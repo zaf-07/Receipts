@@ -61,6 +61,9 @@ export interface Ui {
   /** Run a server action. Failures surface as a notice instead of being swallowed. */
   act: (path: string, body?: unknown) => Promise<boolean>;
   openLead: (id: string) => void;
+  /** Show a task run on the team screen. */
+  openTask: (id: string) => void;
+  taskId: string | null;
   go: (view: string) => void;
   reviewer: string;
 }

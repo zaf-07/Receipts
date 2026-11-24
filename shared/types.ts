@@ -229,21 +229,78 @@ export interface ActivityEntry {
   message: string;
   lead_id: string | null;
   ref: string | null;
+  /** The task run this line was written from, when there was one. The feed joins on it to show inputs and outcome. */
+  task_id: string | null;
+  run_id: string | null;
 }
 
-/** A durable unit of work handed to one specialist agent. Dependencies prevent a task from starting early. */
-export type AgentTaskStatus = 'todo' | 'doing' | 'blocked' | 'review' | 'done';
+/**
+ * queued: waiting for its dependencies or a free worker. running: leased to a worker.
+ * blocked: cannot proceed, with the reason named. review: waiting for a person.
+ * done / failed: settled. Failed means every attempt was used.
+ */
+export type TaskStatus = 'queued' | 'running' | 'blocked' | 'review' | 'done' | 'failed';
 
-export interface AgentTask {
+/** What a task does. Each kind is scoped to one unit: one ICP, one search, one account, one lead, one draft. */
+export type TaskKind = 'plan' | 'search' | 'read' | 'recheck' | 'enrich' | 'write' | 'verify' | 'approve' | 'learn' | 'manual';
+
+export type BlockerCode = 'credits' | 'dependency' | 'operator';
+
+/** A durable unit of work leased to one specialist agent. Only the orchestrator creates these. */
+export interface TaskRun {
   id: string;
+  run_id: string;
+  lead_id: string | null;
+  agent: AgentName;
+  kind: TaskKind;
   title: string;
   detail: string;
-  agent: AgentName;
-  status: AgentTaskStatus;
+  status: TaskStatus;
   depends_on: string[];
-  lead_id: string | null;
+  priority: number;
+  attempt: number;
+  max_attempts: number;
+  lease_owner: string | null;
+  lease_expires_at: string | null;
+  /** Credits held for this task so parallel work cannot overspend the balance. */
+  reserved_credits: number;
+  input: Record<string, string>;
+  input_receipt_ids: string[];
+  output_receipt_ids: string[];
+  output_message_ids: string[];
+  result: string | null;
+  blocker: string | null;
+  blocker_code: BlockerCode | null;
+  error: string | null;
+  idempotency_key: string | null;
   created_at: string;
   updated_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+/** One pipeline invocation and the tasks it fanned out into. */
+export interface PipelineRun {
+  id: string;
+  kind: 'intake' | 'discovery' | 'ingest' | 'resume' | 'reverify' | 'outcome' | 'manual';
+  label: string;
+  phase: string | null;
+  status: 'active' | 'done';
+  created_at: string;
+  finished_at: string | null;
+}
+
+/** One entry in a draft's append-only history: who changed it, and what the claims looked like after. */
+export interface DraftVersion {
+  id: number;
+  message_id: string;
+  version: number;
+  author: AgentName;
+  note: string;
+  claims: number;
+  struck: number;
+  task_id: string | null;
+  created_at: string;
 }
 
 /** A short instruction or handoff note. Messages belong to a task, so agent communication stays auditable. */
@@ -347,8 +404,11 @@ export interface Snapshot {
   competitors: CompetitorView[];
   metrics: Metrics;
   activity: ActivityEntry[];
-  tasks: AgentTask[];
+  tasks: TaskRun[];
+  runs: PipelineRun[];
   task_messages: AgentTaskMessage[];
+  draft_versions: DraftVersion[];
+  team: { concurrency: number; lease_seconds: number };
   world: { pages: WorldPageView[]; pending_batches: number };
 }
 

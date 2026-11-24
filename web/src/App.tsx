@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ActivityEntry } from '../../shared/types';
-import { UiContext, call, useSnapshot, type Ui } from './api';
-import { fmtDate, fmtTime } from './components';
+import { UiContext, call, useSnapshot, useUi, type Ui } from './api';
+import { Chip, fmtDate, fmtTime } from './components';
 import { Intake } from './views/Intake';
 import { Accounts } from './views/Accounts';
 import { Review } from './views/Review';
@@ -12,7 +12,7 @@ import { GraphView } from './views/GraphView';
 import { Competitors } from './views/Competitors';
 import { LeadDrawer } from './views/LeadDrawer';
 import { DemoPanel } from './views/DemoPanel';
-import { Team } from './views/Team';
+import { KIND_LABEL, Team, receiptIndex } from './views/Team';
 
 const VIEWS = ['intake', 'accounts', 'review', 'not-yet', 'pipeline', 'team', 'dashboard', 'graph', 'competitors'] as const;
 type View = (typeof VIEWS)[number];
@@ -47,26 +47,52 @@ function initialView(): View {
   return VIEWS.includes(hash) ? hash : 'intake';
 }
 
+/**
+ * The event stream. Each line is an event; when it came from a task, the task's record is joined
+ * in at render time to show its state, the receipts it was given or produced, and any blocker.
+ */
 function Feed({ entries, onLead }: { entries: ActivityEntry[]; onLead: (id: string) => void }) {
+  const { snap, openTask } = useUi();
+  const tasks = useMemo(() => new Map(snap.tasks.map((t) => [t.id, t])), [snap.tasks]);
+  const receipts = useMemo(() => receiptIndex(snap), [snap]);
   if (entries.length === 0) return <p className="feed-empty">Nothing yet. Agent handoffs will appear here as they happen.</p>;
   return (
     <ol className="feed">
-      {entries.map((e) => (
-        <li key={e.id} className={`feed-item kind-${e.kind}`}>
-          <div className="feed-top">
-            <span className={`agent agent-${e.agent}`}>{AGENT_LABEL[e.agent] ?? e.agent}</span>
-            <time>{fmtTime(e.at)}</time>
-          </div>
-          <p>
-            {e.message}
-            {e.lead_id && (
-              <button type="button" className="link" onClick={() => onLead(e.lead_id!)}>
-                open
-              </button>
+      {entries.map((e) => {
+        const task = e.task_id ? tasks.get(e.task_id) : undefined;
+        // A handoff shows what was produced; a block or warning shows what was being worked on.
+        const ids = task && e.kind !== 'info' && e.kind !== 'start' ? (task.output_receipt_ids.length ? task.output_receipt_ids : task.input_receipt_ids) : [];
+        const linked = ids.map((id) => receipts.get(id)).filter((r) => r !== undefined);
+        return (
+          <li key={e.id} className={`feed-item kind-${e.kind}`}>
+            <div className="feed-top">
+              <span className={`agent agent-${e.agent}`}>{AGENT_LABEL[e.agent] ?? e.agent}</span>
+              <time>{fmtTime(e.at)}</time>
+            </div>
+            <p>
+              {e.message}
+              {e.lead_id && (
+                <button type="button" className="link" onClick={() => onLead(e.lead_id!)}>
+                  open
+                </button>
+              )}
+            </p>
+            {task && (
+              <div className="feed-task">
+                <button type="button" className={`task-pill status-${task.status}`} onClick={() => openTask(task.id)} title={task.title}>
+                  {KIND_LABEL[task.kind]} · {task.status}
+                  {task.attempt > 1 ? ` · attempt ${task.attempt}` : ''}
+                </button>
+                {linked.slice(0, 3).map((r) => (
+                  <Chip key={r.id} r={r} now={snap.now} />
+                ))}
+                {linked.length > 3 && <span className="muted">+{linked.length - 3}</span>}
+                {task.status === 'blocked' && task.blocker && <em>{task.blocker}</em>}
+              </div>
             )}
-          </p>
-        </li>
-      ))}
+          </li>
+        );
+      })}
     </ol>
   );
 }
@@ -79,6 +105,7 @@ export function App() {
   const [feedOpen, setFeedOpen] = useState(() => window.innerWidth >= 1180);
   const [demoOpen, setDemoOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [taskId, setTaskId] = useState<string | null>(null);
 
   const go = useCallback((v: string) => {
     if (!VIEWS.includes(v as View)) return;
@@ -103,8 +130,22 @@ export function App() {
   }, []);
 
   const ui = useMemo<Ui | null>(
-    () => (snap ? { snap, act, openLead: setLeadId, go, reviewer: snap.profile?.sender || 'Reviewer' } : null),
-    [snap, act, go],
+    () =>
+      snap
+        ? {
+            snap,
+            act,
+            openLead: setLeadId,
+            openTask: (id: string) => {
+              setTaskId(id);
+              go('team');
+            },
+            taskId,
+            go,
+            reviewer: snap.profile?.sender || 'Reviewer',
+          }
+        : null,
+    [snap, act, go, taskId],
   );
 
   if (!snap || !ui) {
@@ -120,6 +161,7 @@ export function App() {
     accounts: snap.leads.length,
     review: snap.leads.filter((l) => l.message?.status === 'pending_review').length,
     'not-yet': snap.leads.filter((l) => l.state !== 'active').length,
+    team: snap.tasks.filter((t) => t.status === 'running' || t.status === 'blocked' || t.status === 'failed').length,
     competitors: snap.competitors.length,
   };
   const lead = leadId ? snap.leads.find((l) => l.id === leadId) : null;
@@ -209,7 +251,7 @@ export function App() {
 
         <aside className="feed-rail" aria-label="Agent activity" aria-hidden={!feedOpen} inert={!feedOpen}>
             <header>
-              <h3>Agent activity</h3>
+              <h3>Tasks and handoffs</h3>
               <button type="button" className="link" onClick={() => setFeedOpen(false)}>
                 hide
               </button>

@@ -3,6 +3,7 @@ import { all, get, run } from '../db';
 import { nowIso } from '../clock';
 import { config } from '../config';
 import { log } from './activity';
+import { currentTask } from './context';
 import { meterEvent } from '../integrations/flexprice';
 
 export type MeteredOp = 'enrich' | 'draft' | 'send';
@@ -19,7 +20,9 @@ export function credit(amount: number, op: string, note: string): void {
  * The credit gate. Charges for a metered operation, or refuses and says so.
  * Returns false when the balance cannot cover the cost. The caller must not do the work.
  */
-export function charge(op: MeteredOp, ref: string, note: string, leadId?: string): boolean {
+export function charge(op: MeteredOp, ref: string, note: string, leadId?: string, once = false): boolean {
+  // A retried task must not pay twice for work it already paid for.
+  if (once && get<{ n: number }>('SELECT COUNT(*) AS n FROM ledger WHERE op = ? AND ref = ?', op, ref)?.n) return true;
   const cost = config.costs[op];
   const have = balance();
   if (have < cost) {
@@ -30,6 +33,9 @@ export function charge(op: MeteredOp, ref: string, note: string, leadId?: string
     return false;
   }
   run('INSERT INTO ledger (op, amount, ref, note, created_at) VALUES (?, ?, ?, ?, ?)', op, -cost, ref, note, nowIso());
+  // The task was holding these credits. Now that they are spent, the hold shrinks by the same amount.
+  const scope = currentTask();
+  if (scope) run('UPDATE task_runs SET reserved_credits = MAX(0, reserved_credits - ?) WHERE id = ?', cost, scope.task_id);
   meterEvent(`receipts.${op}`, cost, ref);
   return true;
 }

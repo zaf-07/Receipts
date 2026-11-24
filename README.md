@@ -81,6 +81,47 @@ Scoring, in [server/domain/scoring.ts](server/domain/scoring.ts): 0 to 100, half
 
 **The headline metric is catch rate:** claims struck divided by claims drafted. It is the number that proves the system is doing work. Proof rate of sent messages is not the headline, because failed claims are struck before sending and it would always read near 100%.
 
+## The agent team
+
+The seven roles run as a team with one lead. The **orchestrator** plans, assigns and reconciles, and does no agent work itself. The roles do scoped work in parallel and return an outcome. A worker cannot create a task, close a review or send anything: only the orchestrator decides what happens next.
+
+```
+Planner      one ICP run
+Researcher   one search task, then one read task per account, in parallel
+Enricher     one task per active lead, in parallel
+Writer       one task per enriched lead, in parallel
+Skeptic      one task per draft, in parallel
+Human gate   one review task per verified draft
+Analyst      one task per outcome
+```
+
+**Every unit of work is a durable task run** (`task_runs`, in [server/services/tasks.ts](server/services/tasks.ts)):
+
+| Field | Meaning |
+| --- | --- |
+| `id`, `run_id`, `lead_id`, `agent`, `kind` | Which task, in which pipeline run, for which lead, done by whom |
+| `status` | `queued`, `running`, `blocked`, `review`, `done` or `failed` |
+| `depends_on` | Tasks that must be done first. A task is never leased before them |
+| `attempt`, `max_attempts` | How many times it has been tried |
+| `lease_owner`, `lease_expires_at` | Who holds it, and until when |
+| `input_receipt_ids`, `output_receipt_ids`, `output_message_ids` | What it was given and what it produced |
+| `blocker`, `blocker_code`, `error`, `result` | Why it is stuck, why it failed, or what happened |
+
+The rules that make parallel work safe:
+
+- **A task is leased, not owned.** A worker holds a task for a short lease and renews it with a heartbeat. If the worker stops, the lease expires and the task is taken back and retried. A restart resumes the pipeline.
+- **A task settles once.** Only the worker holding the current lease can settle a task, so a stale worker's late result is dropped.
+- **Planning is idempotent.** Every task has a key (`enrich:<lead>`, `verify:<draft>:<n>`). Planning the same step twice returns the same task, and a retried task does not pay twice.
+- **Blocked is a real state.** A task that cannot proceed says why. Credits are held per task in priority order, so parallel work cannot overspend, and a lead that is started can be finished.
+- **Agents append, never overwrite.** The Skeptic adds a verdict (`verifications`) and a new draft version (`message_versions`); the Writer's version stays in the history. Lead state is derived by the orchestrator from the receipts.
+- **One door out.** [server/services/delivery.ts](server/services/delivery.ts) is the only code that can mark a message sent. It needs an open human review task for that exact draft and refuses to run from inside any agent task.
+
+The **Agent team** screen shows the team shape, every task by status, and each task's inputs, outputs, attempts, blocker and draft history. The activity sidebar is the event stream: each handoff is linked to its task and shows the receipts involved. Events are collected in one place, the task records are the model, and the screens only render them.
+
+`RECEIPTS_CONCURRENCY` (default 4) sets how many tasks run at once, and `RECEIPTS_LEASE_MS` (default 30000) sets the lease length.
+
+The coordination pattern is inspired by Tomville's lead-and-workers discipline: explicit assignment, visible blocked states, logged handoffs, review before completion and isolated parallel work. No Tomville code or runtime is used.
+
 ## The demo world
 
 By default Receipts runs on a seeded world: fourteen fictional company websites served by the app itself under `/world`. They are real HTTP pages, so the Researcher reads them and the Skeptic re-fetches them exactly as it would on the public web. Every page says it is fictional.
@@ -165,12 +206,12 @@ Written but not yet exercised against the real service:
 shared/            Types and constants used by both sides
 server/
   domain/          Pure rules: state, scoring, snippet matching
-  agents/          Planner, Researcher, Enricher, Writer, Skeptic, Analyst, orchestrator
-  services/        Store, ledger, activity feed, fetcher, snapshot, model client
+  agents/          Planner, Researcher, Enricher, Writer, Skeptic, Analyst, the orchestrator and the worker pool
+  services/        Store, task runs and leases, delivery guard, ledger, activity stream, fetcher, snapshot, model client
   world/           The seeded demo world and its routes
   integrations/    Flexprice and handoff webhook
 web/src/           React client: one view per screen
-test/              Rule tests and the end-to-end pipeline test
+test/              Rule tests, scheduler tests (concurrency, retries, leases, idempotency), send-gate tests, and the end-to-end pipeline test
 ```
 
 One SQLite file (`data/receipts.db`, created on first run) is the only store. The knowledge graph is a projection of it.

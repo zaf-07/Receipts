@@ -21,6 +21,10 @@ export const config = {
   /** Tuned so the seeded run ends just short of one more enrichment, which shows the credit gate. */
   startingCredits: Number(env.RECEIPTS_STARTING_CREDITS ?? 38),
   costs: { enrich: 5, draft: 2, send: 1 },
+  /** How many agent tasks run at once. Each lead's tasks are independent, so this is real parallelism. */
+  concurrency: Math.max(1, Number(env.RECEIPTS_CONCURRENCY ?? 4)),
+  /** How long a worker may hold a task without a heartbeat before the task is taken back and retried. */
+  leaseMs: Math.max(1000, Number(env.RECEIPTS_LEASE_MS ?? 30_000)),
   flexprice: {
     apiKey: env.FLEXPRICE_API_KEY ?? '',
     baseUrl: env.FLEXPRICE_BASE_URL ?? 'https://api.cloud.flexprice.io',

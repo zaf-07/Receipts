@@ -1,5 +1,7 @@
 import type {
+  AgentName,
   Company,
+  DraftVersion,
   EntityType,
   IcpVersion,
   Lead,
@@ -18,6 +20,7 @@ import { SIGNALS } from '../../shared/constants';
 import { all, get, getSetting, newId, parse, run, setSetting } from '../db';
 import { daysFrom, now, nowIso } from '../clock';
 import { normalize } from '../domain/text';
+import { currentTask } from './context';
 
 // ---------- profile ----------
 
@@ -125,15 +128,44 @@ export function addReceipt(input: NewReceipt): { receipt: Receipt; created: bool
   return { receipt, created: true };
 }
 
-export function markReceipt(id: string, status: 'verified' | 'failed', failReason: string | null): void {
+/**
+ * Record the Skeptic's verdict on a receipt. Verdicts are appended, never edited: the
+ * verifications table is the history, and the receipt's own status columns are a projection
+ * of the latest verdict, kept here so that readers do not have to join.
+ */
+export function recordVerification(receiptId: string, ok: boolean, reason: string | null): void {
+  const at = nowIso();
+  run(
+    'INSERT INTO verifications (receipt_id, task_id, ok, reason, checked_by, checked_at) VALUES (?, ?, ?, ?, ?, ?)',
+    receiptId,
+    currentTask()?.task_id ?? null,
+    ok,
+    reason,
+    'skeptic',
+    at,
+  );
   run(
     'UPDATE receipts SET status = ?, verified_by = ?, verified_at = ?, fail_reason = ? WHERE id = ?',
-    status,
+    ok ? 'verified' : 'failed',
     'skeptic',
-    nowIso(),
-    failReason,
-    id,
+    at,
+    ok ? null : reason,
+    receiptId,
   );
+}
+
+export interface Verification {
+  id: number;
+  receipt_id: string;
+  task_id: string | null;
+  ok: number;
+  reason: string | null;
+  checked_by: string;
+  checked_at: string;
+}
+
+export function verificationsFor(receiptId: string): Verification[] {
+  return all<Verification>('SELECT * FROM verifications WHERE receipt_id = ? ORDER BY id', receiptId);
 }
 
 // ---------- companies and people ----------
@@ -380,16 +412,77 @@ export function createMessage(input: Pick<Message, 'lead_id' | 'channel' | 'vari
     at,
     at,
   );
+  appendVersion(id, 'writer', 'First draft', input.subject, input.sentences);
   return getMessage(id)!;
 }
 
-export function updateMessage(id: string, patch: Partial<Message>): void {
+// A draft's history is append-only. The messages row is the current version; every earlier
+// version, with its author, stays in message_versions. The Skeptic striking a sentence adds a
+// version. It does not erase what the Writer wrote.
+function appendVersion(messageId: string, author: AgentName, note: string, subject: string, sentences: Sentence[]): void {
+  const version = (get<{ v: number | null }>('SELECT MAX(version) AS v FROM message_versions WHERE message_id = ?', messageId)?.v ?? 0) + 1;
+  run(
+    'INSERT INTO message_versions (message_id, version, author, note, subject, sentences, task_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    messageId,
+    version,
+    author,
+    note,
+    subject,
+    sentences,
+    currentTask()?.task_id ?? null,
+    nowIso(),
+  );
+}
+
+export interface StoredVersion extends Omit<DraftVersion, 'claims' | 'struck'> {
+  subject: string;
+  sentences: Sentence[];
+}
+
+export function versionsFor(messageId: string): StoredVersion[] {
+  return all<Omit<StoredVersion, 'sentences'> & { sentences: string }>('SELECT * FROM message_versions WHERE message_id = ? ORDER BY version', messageId).map((v) => ({
+    ...v,
+    sentences: parse<Sentence[]>(v.sentences, []),
+  }));
+}
+
+/** Every draft version, summarised for the timeline. */
+export function listDraftVersions(): DraftVersion[] {
+  return all<{ id: number; message_id: string; version: number; author: AgentName; note: string; sentences: string; task_id: string | null; created_at: string }>(
+    'SELECT * FROM message_versions ORDER BY id',
+  ).map(({ sentences, ...v }) => {
+    const claims = parse<Sentence[]>(sentences, []).filter((s) => s.kind === 'claim');
+    return { ...v, claims: claims.length, struck: claims.filter((s) => s.status === 'struck').length };
+  });
+}
+
+/**
+ * Change a draft. A change to its words appends a version credited to whoever made it.
+ * This function cannot mark a message sent: delivery has exactly one door, markSent, below.
+ */
+export function updateMessage(id: string, patch: Partial<Message>, by?: { author: AgentName; note: string }): void {
   const keys = Object.keys(patch).filter((k) => k !== 'id');
   if (keys.length === 0) return;
+  if (patch.status === 'sent' || 'sent_at' in patch) throw new Error('A message is marked sent only by the delivery service, after a human approval.');
+  if (patch.sentences || patch.subject !== undefined) {
+    const before = getMessage(id);
+    if (before) {
+      const sentences = patch.sentences ?? before.sentences;
+      const subject = patch.subject ?? before.subject;
+      if (JSON.stringify(sentences) !== JSON.stringify(before.sentences) || subject !== before.subject) {
+        appendVersion(id, by?.author ?? currentTask()?.agent ?? 'system', by?.note ?? 'Revised', subject, sentences);
+      }
+    }
+  }
   run(
     `UPDATE messages SET ${keys.map((k) => `${k} = ?`).join(', ')}, updated_at = ? WHERE id = ?`,
     ...keys.map((k) => (patch as Record<string, unknown>)[k]),
     nowIso(),
     id,
   );
+}
+
+/** The only writer of the sent status. Imported by the delivery service and nothing else. */
+export function markSent(id: string, reviewer: string, sentAt: string): void {
+  run("UPDATE messages SET status = 'sent', reviewer = ?, sent_at = ?, updated_at = ? WHERE id = ?", reviewer, sentAt, nowIso(), id);
 }

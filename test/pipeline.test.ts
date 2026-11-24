@@ -134,6 +134,66 @@ test('enrichment is honest about what it could not resolve', async () => {
   assert.equal(tessera.message, null);
 });
 
+test('the pipeline ran as scoped tasks in parallel, one per account, lead and draft', async () => {
+  const snap = await settled();
+  const of = (kind: string) => snap.tasks.filter((t) => t.kind === kind);
+
+  assert.equal(of('plan').length, 1, 'one ICP run');
+  assert.equal(of('search').length, 1);
+  assert.equal(of('read').length, snap.leads.length, 'one read task per account');
+  assert.ok(of('read').every((t) => t.status === 'done' && t.attempt === 1));
+
+  // Parallel for real: some read tasks were in flight at the same moment.
+  const reads = of('read');
+  const overlapped = reads.some((a) => reads.some((b) => a.id !== b.id && a.started_at! < b.finished_at! && b.started_at! < a.finished_at!));
+  assert.ok(overlapped, 'read tasks overlapped in time');
+  assert.ok(snap.team.concurrency > 1);
+
+  // One enrichment task per active lead, one writing task per enriched lead, one Skeptic task per draft.
+  const northbeam = lead(snap, 'Northbeam AI');
+  const mine = (kind: string) => of(kind).filter((t) => t.lead_id === northbeam.id);
+  assert.equal(mine('enrich').length, 1);
+  assert.equal(mine('write').length, 1);
+  assert.equal(mine('verify').length, northbeam.messages.length);
+  assert.deepEqual(mine('write')[0].depends_on, [mine('enrich')[0].id], 'writing waits for the contact');
+  assert.deepEqual(mine('verify')[0].depends_on, [mine('write')[0].id], 'verification waits for the draft');
+  assert.deepEqual([...mine('write')[0].output_message_ids].sort(), northbeam.messages.map((m) => m.id).sort(), 'the task records the drafts it produced');
+  assert.ok(mine('verify')[0].input_receipt_ids.length > 0, 'and the receipts it was given to check');
+
+  // Every draft waiting for a person has exactly one open review task, and nothing else is in review.
+  const waiting = snap.leads.flatMap((l) => l.messages).filter((m) => m.status === 'pending_review');
+  const gates = of('approve').filter((t) => t.status === 'review');
+  assert.deepEqual(gates.map((t) => t.input.message_id).sort(), waiting.map((m) => m.id).sort());
+  assert.ok(gates.every((t) => t.agent === 'human'));
+
+  assert.ok(snap.tasks.every((t) => t.status !== 'running' && t.status !== 'queued'), 'nothing is left in flight');
+  assert.ok(snap.runs.every((r) => r.status === 'done'), 'a run waiting only on people is settled');
+
+  // Each activity line written by a task is linked back to it.
+  const linked = snap.activity.filter((a) => a.task_id);
+  assert.ok(linked.length > 10);
+  assert.ok(linked.every((a) => snap.tasks.some((t) => t.id === a.task_id)));
+});
+
+test("agents append: the Skeptic adds a verdict and a draft version, and the Writer keeps its own", async () => {
+  const snap = await settled();
+  const vectorly = lead(snap, 'Vectorly');
+  const email = vectorly.messages.find((m) => m.channel === 'email')!;
+  const history = snap.draft_versions.filter((v) => v.message_id === email.id);
+
+  assert.deepEqual(history.map((v) => [v.version, v.author]), [[1, 'writer'], [2, 'skeptic']]);
+  assert.equal(history[0].struck, 0, 'version 1 is what the Writer wrote, untouched');
+  assert.equal(history[1].struck, 1, "version 2 is the verdict the Skeptic added");
+  assert.equal(history[0].claims, history[1].claims);
+  const verify = snap.tasks.find((t) => t.kind === 'verify' && t.input.message_id === email.id)!;
+  assert.equal(history[1].task_id, verify.id, 'the version records the task that made it');
+
+  // A struck receipt keeps its claim, snippet and source. Only a verdict was added.
+  const gone = vectorly.receipts.find((r) => r.status === 'failed')!;
+  assert.ok(gone.claim && gone.snippet && gone.source_url);
+  assert.equal(gone.verified_by, 'skeptic');
+});
+
 test('the graph answers why this person, why now, why us, with the warm intro', async () => {
   const snap = await settled();
   const why = await api<WhyStep[]>(`/leads/${lead(snap, 'Northbeam AI').id}/why`);
@@ -177,9 +237,19 @@ test('ingest wakes a dormant lead, and the credit gate holds its enrichment', as
   assert.ok(snap.credits.gated);
   assert.ok(snap.credits.balance < snap.credits.costs.enrich);
 
+  // Blocked is a real task state with its reason, and the held task was never started.
+  const held = snap.tasks.find((t) => t.kind === 'enrich' && t.lead_id === bright.id)!;
+  assert.equal(held.status, 'blocked');
+  assert.equal(held.blocker_code, 'credits');
+  assert.match(held.blocker!, /Needs 7 credits/);
+  assert.equal(held.attempt, 0);
+  assert.ok(snap.activity.some((a) => a.kind === 'block' && a.task_id === held.id), 'the block is in the event stream, linked to its task');
+
   await api('/credits/topup', { amount: 50 });
   snap = await settled();
   assert.equal(lead(snap, 'Brightloop').enrich_status, 'resolved');
+  assert.equal(snap.tasks.find((t) => t.id === held.id)!.status, 'done', 'the same task resumed once credits arrived');
+  assert.equal(snap.tasks.filter((t) => t.kind === 'enrich' && t.lead_id === bright.id).length, 1, 'no duplicate was created');
   assert.equal(lead(snap, 'Brightloop').message?.status, 'pending_review');
   assert.equal(snap.credits.gated, false);
 });

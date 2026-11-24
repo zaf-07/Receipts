@@ -12,7 +12,7 @@ import { changed, log, subscribe } from './services/activity';
 import { balance, credit } from './services/ledger';
 import { buildGraph, buildSnapshot, contrastEmail, whyNow } from './services/snapshot';
 import { searchPipeline } from './services/moss';
-import { getProfile, latestMessage } from './services/store';
+import { latestMessage } from './services/store';
 import {
   UserError,
   activateIcp,
@@ -29,14 +29,16 @@ import {
   reject,
   resetDemo,
   resume,
+  retry,
   reverify,
   tick,
   topUp,
+  wake,
 } from './agents/orchestrator';
 import { setPageStatus, seedWorld, worldRouter, worldSeeded } from './world/world';
 import { EXAMPLE_PROFILE } from './world/seed';
 import { AGENT_ROLES, bandEnabled } from './integrations/band';
-import { addTaskMessage, createTask, ensurePipelineTasks, setTaskStatus } from './services/tasks';
+import { addTaskMessage, createManualTask, setManualStatus } from './services/tasks';
 
 const text = (v: unknown, max = 4000) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 const list = (v: unknown) =>
@@ -92,15 +94,13 @@ export function createApp() {
     if (!profile.product_name || profile.description.length < 20) {
       throw new UserError('Give the product a name and a description of at least a sentence.');
     }
-    const icp = await intake(profile);
-    ensurePipelineTasks();
-    res.json(icp);
+    res.json(await intake(profile));
   });
 
   api.post('/tasks', (req, res) => {
     try {
       res.status(201).json(
-        createTask({
+        createManualTask({
           title: text(req.body.title, 160),
           detail: text(req.body.detail, 1200),
           agent: text(req.body.agent, 40),
@@ -115,9 +115,17 @@ export function createApp() {
 
   api.post('/tasks/:id/status', (req, res) => {
     try {
-      res.json(setTaskStatus(req.params.id, text(req.body.status, 20)));
+      res.json(setManualStatus(req.params.id, text(req.body.status, 20)));
     } catch (err) {
       throw new UserError(err instanceof Error ? err.message : 'Could not update the task.');
+    }
+  });
+
+  api.post('/tasks/:id/retry', (req, res) => {
+    try {
+      res.json(retry(req.params.id));
+    } catch (err) {
+      throw new UserError(err instanceof Error ? err.message : 'Could not retry the task.');
     }
   });
 
@@ -267,8 +275,11 @@ export async function start(opts: { port?: number; dbPath?: string } = {}): Prom
     seedWorld();
     if (balance() === 0) credit(config.startingCredits, 'grant', 'Starting credits');
   }
-  // Existing demo databases may predate the team board. Give them the same starter plan on boot.
-  if (getProfile()) ensurePipelineTasks();
+  // Tasks that were running when the server last stopped still hold a lease. Once it expires they are
+  // taken back and retried, so a restart resumes the pipeline instead of losing work.
+  const waker = setInterval(wake, Math.min(5000, Math.max(250, Math.floor(config.leaseMs / 2))));
+  waker.unref();
+  wake();
 
   // Receipts expire on their own, so the state rules also run on a clock tick.
   const timer = setInterval(tick, 30_000);
@@ -280,6 +291,7 @@ export async function start(opts: { port?: number; dbPath?: string } = {}): Prom
     stop: () =>
       new Promise<void>((done) => {
         clearInterval(timer);
+        clearInterval(waker);
         server.closeAllConnections();
         server.close(() => done());
       }),

@@ -9,6 +9,7 @@ import { structured } from '../services/llm';
 import { charge } from '../services/ledger';
 import { log } from '../services/activity';
 import { taskBrief } from '../services/tasks';
+import { currentTask } from '../services/context';
 import { createMessage, getCompany, getPerson, leadReceipts } from '../services/store';
 
 // The Writer builds an email as a list of sentences. Each sentence is a claim or a connective,
@@ -189,7 +190,9 @@ export async function writeDraft(lead: Lead, icp: IcpVersion, profile: Profile):
   const triggers = receipts.filter((r) => r.sign === 'positive' && isTrigger(r) && isLive(r, at)).sort((a, b) => strength(b) - strength(a));
   if (triggers.length === 0) return null;
 
-  if (!charge('draft', lead.id, `Drafting for ${company.name}`, lead.id)) return 'blocked_credits';
+  // Charged once per task, so a retry after a failed model call does not pay twice.
+  const scope = currentTask();
+  if (!charge('draft', scope?.task_id ?? lead.id, `Drafting for ${company.name}`, lead.id, Boolean(scope))) return 'blocked_credits';
 
   const warm = warmIntro(receipts, profile);
   const ctx: Context = { company, person, profile, triggers, warm };

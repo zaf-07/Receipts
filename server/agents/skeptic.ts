@@ -5,7 +5,7 @@ import { containsSnippet, firstName } from '../domain/text';
 import { fetchPage } from '../services/fetcher';
 import { log } from '../services/activity';
 import { recomputeLead } from '../services/leads';
-import { allReceipts, getCompany, getLead, getMessage, getPerson, getReceipt, markReceipt, updateMessage } from '../services/store';
+import { allReceipts, getCompany, getLead, getMessage, getPerson, getReceipt, recordVerification, updateMessage } from '../services/store';
 import { subjectFor, unsupportedFigures } from './writer';
 
 // The Skeptic re-opens each source and tries to disprove each claim.
@@ -37,7 +37,7 @@ export async function checkReceipt(receipt: Receipt, cache = new Map<string, Pro
 async function verify(receipt: Receipt, cache: Map<string, Promise<Awaited<ReturnType<typeof fetchPage>>>>): Promise<Check> {
   if (receipt.status === 'failed') return { ok: false, reason: receipt.fail_reason ?? 'failed an earlier check' };
   const check = await checkReceipt(receipt, cache);
-  markReceipt(receipt.id, check.ok ? 'verified' : 'failed', check.reason);
+  recordVerification(receipt.id, check.ok, check.reason);
   return check;
 }
 
@@ -113,13 +113,15 @@ export async function reviewDraft(messageId: string): Promise<Message | null> {
     if (person && top) subject = subjectFor(firstName(person.name), top.field === 'signal' ? top.signal_type : null);
   }
 
+  // The Skeptic's verdict is a new version of the draft. The Writer's version stays in the history.
+  const verdict = { author: 'skeptic' as const, note: `Re-verified: ${verified} claim${verified === 1 ? ' stands' : 's stand'}, ${struck} struck` };
   if (surviving.length === 0) {
-    updateMessage(message.id, { sentences, subject, status: 'blocked', block_reason: 'No claim survived re-verification, so there is nothing true left to send.' });
+    updateMessage(message.id, { sentences, subject, status: 'blocked', block_reason: 'No claim survived re-verification, so there is nothing true left to send.' }, verdict);
     log('skeptic', 'block', `Draft for ${company.name} blocked: no claim survived re-verification.`, { lead_id: lead.id, ref: message.id });
   } else if (after.state !== 'active') {
-    updateMessage(message.id, { sentences, subject, status: 'blocked', block_reason: after.dormant_reason ?? 'The lead has no live reason to contact.' });
+    updateMessage(message.id, { sentences, subject, status: 'blocked', block_reason: after.dormant_reason ?? 'The lead has no live reason to contact.' }, verdict);
   } else {
-    updateMessage(message.id, { sentences, subject, status: 'pending_review', block_reason: null });
+    updateMessage(message.id, { sentences, subject, status: 'pending_review', block_reason: null }, verdict);
     log(
       'skeptic',
       'handoff',

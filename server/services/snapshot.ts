@@ -24,10 +24,11 @@ import { bandEnabled } from '../integrations/band';
 import { unsupportedFigures, warmIntro } from '../agents/writer';
 import { recentActivity } from './activity';
 import { balance, countOps, recentLedger } from './ledger';
-import { listTaskMessages, listTasks } from './tasks';
+import { listRuns, listTaskMessages, listTasks } from './tasks';
 import {
   allReceipts,
   currentIcp,
+  listDraftVersions,
   getCompany,
   getLead,
   getPerson,
@@ -152,12 +153,16 @@ export function buildMetrics(leads: LeadView[]): Metrics {
 export function buildSnapshot(running: string | null): Snapshot {
   const leads = buildLeads();
   const bal = balance();
-  const waiting = leads.some(
-    (l) =>
-      l.state === 'active' &&
-      l.stage === 'Matched' &&
-      (l.enrich_status === 'blocked_credits' || (l.person !== null && l.message === null && bal < config.costs.draft)),
-  );
+  const tasks = listTasks();
+  // The gate is closed when a task is blocked for credits. Before task runs existed the lead carried this itself.
+  const waiting =
+    tasks.some((t) => t.status === 'blocked' && t.blocker_code === 'credits') ||
+    leads.some(
+      (l) =>
+        l.state === 'active' &&
+        l.stage === 'Matched' &&
+        (l.enrich_status === 'blocked_credits' || (l.person !== null && l.message === null && bal < config.costs.draft)),
+    );
   return {
     now: now().toISOString(),
     clock_offset_days: clockOffsetDays(),
@@ -171,8 +176,11 @@ export function buildSnapshot(running: string | null): Snapshot {
     competitors: buildCompetitors(),
     metrics: buildMetrics(leads),
     activity: recentActivity(),
-    tasks: listTasks(),
+    tasks,
+    runs: listRuns().filter((r) => tasks.some((t) => t.run_id === r.id)),
     task_messages: listTaskMessages(),
+    draft_versions: listDraftVersions(),
+    team: { concurrency: config.concurrency, lease_seconds: Math.round(config.leaseMs / 1000) },
     world: { pages: config.source === 'world' ? listWorldPages() : [], pending_batches: pendingBatches() },
   };
 }

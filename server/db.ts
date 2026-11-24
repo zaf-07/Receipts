@@ -133,20 +133,82 @@ CREATE TABLE IF NOT EXISTS activity (
   kind TEXT NOT NULL,
   message TEXT NOT NULL,
   lead_id TEXT,
-  ref TEXT
+  ref TEXT,
+  task_id TEXT,
+  run_id TEXT
 );
 
-CREATE TABLE IF NOT EXISTS agent_tasks (
+-- One pipeline invocation: an intake, a discovery, a signal refresh. Groups its task runs.
+CREATE TABLE IF NOT EXISTS runs (
   id TEXT PRIMARY KEY,
-  title TEXT NOT NULL,
-  detail TEXT NOT NULL,
-  agent TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'todo',
-  depends_on TEXT NOT NULL DEFAULT '[]',
-  lead_id TEXT,
+  kind TEXT NOT NULL,
+  label TEXT NOT NULL,
+  phase TEXT,
+  status TEXT NOT NULL DEFAULT 'active',
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  finished_at TEXT
 );
+
+-- The durable unit of agent work. One row per scoped task: one search, one account, one lead, one draft.
+-- A task is leased to a worker, not owned by it: a lease that expires is taken back and retried.
+CREATE TABLE IF NOT EXISTS task_runs (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  lead_id TEXT,
+  agent TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL,
+  detail TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'queued',
+  depends_on TEXT NOT NULL DEFAULT '[]',
+  priority REAL NOT NULL DEFAULT 0,
+  attempt INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL DEFAULT 3,
+  lease_owner TEXT,
+  lease_expires_at TEXT,
+  reserved_credits REAL NOT NULL DEFAULT 0,
+  input TEXT NOT NULL DEFAULT '{}',
+  input_receipt_ids TEXT NOT NULL DEFAULT '[]',
+  output_receipt_ids TEXT NOT NULL DEFAULT '[]',
+  output_message_ids TEXT NOT NULL DEFAULT '[]',
+  result TEXT,
+  blocker TEXT,
+  blocker_code TEXT,
+  error TEXT,
+  idempotency_key TEXT UNIQUE,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  started_at TEXT,
+  finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS task_runs_status ON task_runs (status);
+CREATE INDEX IF NOT EXISTS task_runs_run ON task_runs (run_id);
+
+-- Append-only. The Skeptic never edits a receipt: it adds a verdict, and the receipt's status is derived from the latest one.
+CREATE TABLE IF NOT EXISTS verifications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  receipt_id TEXT NOT NULL,
+  task_id TEXT,
+  ok INTEGER NOT NULL,
+  reason TEXT,
+  checked_by TEXT NOT NULL,
+  checked_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS verifications_receipt ON verifications (receipt_id);
+
+-- Append-only. Every change to a draft is a new version with its author, so nobody's work is overwritten.
+CREATE TABLE IF NOT EXISTS message_versions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  message_id TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  author TEXT NOT NULL,
+  note TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  sentences TEXT NOT NULL,
+  task_id TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS message_versions_message ON message_versions (message_id);
 
 CREATE TABLE IF NOT EXISTS agent_task_messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -184,7 +246,10 @@ const TABLES = [
   'messages',
   'ledger',
   'activity',
-  'agent_tasks',
+  'runs',
+  'task_runs',
+  'verifications',
+  'message_versions',
   'agent_task_messages',
   'world_pages',
 ];
@@ -199,6 +264,11 @@ export function initDb(path: string): void {
   db.exec(SCHEMA);
   const messageColumns = db.prepare('PRAGMA table_info(messages)').all() as { name: string }[];
   if (!messageColumns.some((column) => column.name === 'variant')) db.exec("ALTER TABLE messages ADD COLUMN variant TEXT NOT NULL DEFAULT 'A'");
+  // Databases created before task runs existed: link each activity line to the task that produced it.
+  const activityColumns = db.prepare('PRAGMA table_info(activity)').all() as { name: string }[];
+  for (const column of ['task_id', 'run_id']) {
+    if (!activityColumns.some((c) => c.name === column)) db.exec(`ALTER TABLE activity ADD COLUMN ${column} TEXT`);
+  }
 }
 
 function clean(params: unknown[]): Param[] {
@@ -248,7 +318,7 @@ export function setSetting(key: string, value: unknown): void {
 /** Empties every table. Used by the demo reset. */
 export function wipe(): void {
   for (const table of TABLES) db.exec(`DELETE FROM ${table};`);
-  db.exec("DELETE FROM sqlite_sequence WHERE name IN ('ledger', 'activity');");
+  db.exec("DELETE FROM sqlite_sequence WHERE name IN ('ledger', 'activity', 'verifications', 'message_versions', 'agent_task_messages');");
   settingsCache.clear();
 }
 
