@@ -99,7 +99,7 @@ Demo controls act on the outside world only. The agents find out the same way th
 | 2 | **Intake.** The ICP appears with a confidence per field. Accept one adjacent segment, dismiss the other. | Intake & ICP |
 | 3 | **Discovery.** Companies load into the grid. Click a chip and the source sentence opens. | Accounts |
 | 4 | **Enrichment.** Emails resolve. Cobalt Ledger drops to low confidence and says so. Tessera Health is unresolved and says so. | Accounts |
-| 5 | **Why now.** Signal, company, person, product, plus the warm-intro edge. | Open Northbeam AI, or Graph |
+| 5 | **Why now.** Signal, company, person, product, plus the warm-intro edge. Press **Play** to watch the receipts travel step by step, from the source page to the human gate. | Graph, with Northbeam AI selected |
 | 6 | **The Skeptic.** Vectorly's job posting was taken down; the sentence is struck on screen. Take another page down from Demo controls and press **Re-verify sources**. | Review queue |
 | 7 | **Restraint.** Dormant leads with reasons, disqualified leads with negative receipts. Press **Refresh signals** and Brightloop wakes up. Say out loud that you are triggering the refresh. | Not yet |
 | 8 | **Approval.** Approve one draft, reject one. The approved card moves to Contacted with an AI badge. | Review queue, Pipeline |
@@ -107,6 +107,8 @@ Demo controls act on the outside world only. The agents find out the same way th
 | 10 | **Learning.** Mark a reply. The signal type gains weight, scores re-rank and ICP v2 appears as a diff against v1. | Pipeline, then Intake & ICP |
 
 Beats 1, 6 and 7 carry the pitch. If time is short, show those three plus approval.
+
+The **Graph** screen can also carry beats 5 to 8 on its own. Pick a lead and it walks that lead's real records as an animated, step-by-step path: the page, the receipt, fit, freshness, the contact, the draft, the Skeptic re-opening each source, and the human gate. Vectorly shows a claim being struck, Fathom Works a draft being blocked, and Kestrel Systems a lead being held back before any credits are spent. Use the arrow keys to step, `R` to replay and `Space` to play or pause. The animation follows the system's reduced-motion setting until you press Play or turn Motion on.
 
 ## Configuration
 

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Graph, GraphEdge, GraphNode } from '../../../shared/types';
 import { call, useUi } from '../api';
 import { Empty } from '../components';
+import { LeadJourney } from './LeadJourney';
 
 const COL = { Signal: 130, Company: 380, Person: 630, Right: 880 };
 const ROW = 30;
@@ -24,6 +25,33 @@ interface Placed extends GraphNode {
 }
 
 export function GraphView() {
+  const [tab, setTab] = useState<'journey' | 'all'>('journey');
+  return (
+    <div className="page">
+      <header className="page-head">
+        <div>
+          <h1>Graph</h1>
+          <p>
+            {tab === 'journey'
+              ? 'Follow one lead step by step: from a public page, to a receipt, to a person, to a draft the Skeptic has checked, to the human gate. Every step is read from that lead’s real records.'
+              : 'Every account at once. A projection of the receipts, not a second database. Hover a row to trace one lead; click to open it.'}
+          </p>
+        </div>
+        <div className="tabs" role="tablist">
+          <button type="button" role="tab" aria-selected={tab === 'journey'} className={tab === 'journey' ? 'active' : ''} onClick={() => setTab('journey')}>
+            One lead, step by step
+          </button>
+          <button type="button" role="tab" aria-selected={tab === 'all'} className={tab === 'all' ? 'active' : ''} onClick={() => setTab('all')}>
+            All accounts
+          </button>
+        </div>
+      </header>
+      {tab === 'journey' ? <LeadJourney /> : <AccountsGraph />}
+    </div>
+  );
+}
+
+function AccountsGraph() {
   const { snap, openLead } = useUi();
   const [graph, setGraph] = useState<Graph | null>(null);
   const [hover, setHover] = useState<string | null>(null);
@@ -85,35 +113,14 @@ export function GraphView() {
     return { placed, height };
   }, [graph, snap.leads]);
 
-  if (!graph || !layout) return <div className="page"><Empty title="Loading the graph" /></div>;
-  if (snap.leads.length === 0) {
-    return (
-      <div className="page">
-        <header className="page-head">
-          <div>
-            <h1>Graph</h1>
-          </div>
-        </header>
-        <Empty title="Nothing to project yet">The graph is derived from receipts. Run discovery first.</Empty>
-      </div>
-    );
-  }
+  if (snap.leads.length === 0) return <Empty title="Nothing to project yet">The graph is derived from receipts. Run discovery first.</Empty>;
+  if (!graph || !layout) return <Empty title="Loading the graph" />;
 
   const { placed, height } = layout;
   const hoverLead = hover ? placed.get(hover)?.lead : null;
   const lit = (a?: Placed, b?: Placed) => !hover || a?.id === hover || b?.id === hover || (hoverLead != null && (a?.lead === hoverLead || b?.lead === hoverLead));
 
   return (
-    <div className="page">
-      <header className="page-head">
-        <div>
-          <h1>Graph</h1>
-          <p>
-            A projection of the receipts, not a second database. Read it left to right: a signal, the company it belongs to, the person to reach, and the product.
-            Hover a row to trace one lead; click to open it.
-          </p>
-        </div>
-      </header>
       <div className="graph-wrap">
         <svg viewBox={`0 0 1040 ${height}`} className="graph" role="img" aria-label="Knowledge graph of signals, companies, people and the product">
           <g className="col-heads">
@@ -175,6 +182,5 @@ export function GraphView() {
           <li className="k-warm">warm intro: previously employed at a customer</li>
         </ul>
       </div>
-    </div>
   );
 }

@@ -73,7 +73,8 @@ export function App() {
   const { snap, offline } = useSnapshot();
   const [view, setView] = useState<View>(initialView);
   const [leadId, setLeadId] = useState<string | null>(null);
-  const [feedOpen, setFeedOpen] = useState(true);
+  // On a narrow window the feed overlays the page, so it starts closed there.
+  const [feedOpen, setFeedOpen] = useState(() => window.innerWidth >= 1180);
   const [demoOpen, setDemoOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 

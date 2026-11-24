@@ -1776,6 +1776,751 @@ button.tile:hover {
   background: var(--ai-bg);
 }
 
+/* ---------- lead journey: one lead, step by step, on an isometric stage ---------- */
+
+.journey {
+  container-type: inline-size;
+}
+
+.journey-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.journey-pick button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--rule-2);
+  background: var(--white);
+  border-radius: 999px;
+  padding: 5px 11px 5px 9px;
+  font-size: 12.5px;
+  cursor: pointer;
+  color: var(--ink-2);
+}
+
+.journey-pick button:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.journey-pick button.active {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+  font-weight: 600;
+}
+
+.journey-pick i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--good);
+}
+
+.journey-pick .s-not_yet i {
+  background: var(--old);
+}
+
+.journey-pick .s-disqualified i {
+  background: var(--bad);
+}
+
+.journey-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: 'stage' 'steps' 'panel';
+  gap: 14px;
+  align-items: start;
+}
+
+.journey-stage {
+  grid-area: stage;
+}
+
+.journey-steps {
+  grid-area: steps;
+}
+
+.journey-panel {
+  grid-area: panel;
+}
+
+@container (min-width: 1020px) {
+  .journey-body {
+    grid-template-columns: minmax(0, 1fr) 320px;
+    grid-template-areas: 'stage panel' 'steps steps';
+  }
+}
+
+.journey-stage {
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 12px 12px 8px;
+  min-width: 0;
+}
+
+.journey-stage > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.journey-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.jtile {
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--rule-2);
+  border-radius: 6px;
+  padding: 5px 10px 6px;
+  background: var(--white);
+  min-width: 78px;
+  opacity: 0.55;
+  transition:
+    opacity 0.3s,
+    border-color 0.3s;
+}
+
+.jtile.on {
+  opacity: 1;
+  border-left-color: var(--ink);
+}
+
+.jtile.on.t-good {
+  border-left-color: var(--good);
+}
+
+.jtile.on.t-bad {
+  border-left-color: var(--bad);
+}
+
+.jtile span {
+  display: block;
+  font: 600 9.5px/1.4 var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+}
+
+.jtile strong {
+  font: 600 15px/1.2 var(--mono);
+}
+
+.iso {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.iso-floor line {
+  stroke: var(--rule);
+  stroke-width: 1;
+  opacity: 0.55;
+}
+
+.iso-box polygon {
+  stroke: var(--ink);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+.iso-box.dashed polygon {
+  stroke-dasharray: 4 3;
+}
+
+.iso-box.t-plain .f-top {
+  fill: var(--white);
+}
+.iso-box.t-plain .f-left {
+  fill: #ebe6d8;
+}
+.iso-box.t-plain .f-right {
+  fill: #d9d3c2;
+}
+.iso-box.t-good .f-top {
+  fill: #e2eee4;
+}
+.iso-box.t-good .f-left {
+  fill: #bcd9c4;
+}
+.iso-box.t-good .f-right {
+  fill: #9cc5a8;
+}
+.iso-box.t-bad .f-top {
+  fill: #f6e2de;
+}
+.iso-box.t-bad .f-left {
+  fill: #ebbdb5;
+}
+.iso-box.t-bad .f-right {
+  fill: #dc9f95;
+}
+.iso-box.t-old .f-top {
+  fill: #f4e9d0;
+}
+.iso-box.t-old .f-left {
+  fill: #e6d3a4;
+}
+.iso-box.t-old .f-right {
+  fill: #d6bd80;
+}
+.iso-box.t-ai .f-top {
+  fill: #e2e7f5;
+}
+.iso-box.t-ai .f-left {
+  fill: #bcc8ea;
+}
+.iso-box.t-ai .f-right {
+  fill: #9eaede;
+}
+.iso-box.t-ink .f-top {
+  fill: #45433a;
+}
+.iso-box.t-ink .f-left {
+  fill: #2a2920;
+}
+.iso-box.t-ink .f-right {
+  fill: var(--ink);
+}
+
+.iso-ink {
+  stroke: var(--ink);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  fill: none;
+  opacity: 0.75;
+}
+
+.iso-ink.gone {
+  opacity: 0.25;
+}
+
+.iso-figure rect,
+.iso-figure circle {
+  fill: #9eaede;
+  stroke: var(--ink);
+  stroke-width: 1.5;
+}
+
+.iso-figure.low rect,
+.iso-figure.low circle {
+  fill: #e6d3a4;
+  stroke-dasharray: 4 3;
+}
+
+.iso-receipt {
+  fill: var(--white);
+  stroke: var(--ink);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+.iso-lens line {
+  stroke: var(--ink);
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+
+.iso-lens circle {
+  fill: rgba(255, 254, 250, 0.85);
+  stroke: var(--ink);
+  stroke-width: 2.5;
+}
+
+.iso-label rect {
+  fill: var(--white);
+  stroke: var(--ink);
+  stroke-width: 1.3;
+}
+
+.iso-label text {
+  font: 600 12px var(--sans);
+  text-anchor: middle;
+  fill: var(--ink);
+}
+
+.iso-label text.sub {
+  font: 10px var(--mono);
+  fill: var(--ink-2);
+}
+
+.iso-label.t-good rect {
+  fill: var(--good-bg);
+  stroke: var(--good);
+}
+.iso-label.t-bad rect {
+  fill: var(--bad-bg);
+  stroke: var(--bad);
+}
+.iso-label.t-old rect {
+  fill: var(--old-bg);
+  stroke: var(--old);
+}
+.iso-label.t-ai rect {
+  fill: var(--ai-bg);
+  stroke: var(--ai);
+}
+.iso-label.t-ink rect {
+  fill: var(--ink);
+}
+.iso-label.t-ink text {
+  fill: var(--paper);
+}
+.iso-label.t-ink text.sub {
+  fill: #c9c4b4;
+}
+
+.iso-mark circle {
+  stroke: var(--white);
+  stroke-width: 2;
+}
+
+.iso-mark path {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.iso-mark.ok circle {
+  fill: var(--good);
+}
+
+.iso-mark.no circle {
+  fill: var(--bad);
+}
+
+.iso-mark {
+  animation: iso-pop 0.35s 1.5s cubic-bezier(0.2, 0.9, 0.3, 1.4) both;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.iso-gate .bar {
+  stroke-width: 6;
+  stroke-linecap: round;
+  stroke: var(--bad);
+  stroke-dasharray: 9 7;
+}
+
+.iso-gate.open .bar {
+  stroke: var(--good);
+  stroke-dasharray: none;
+}
+
+.iso-edge {
+  fill: none;
+  stroke: var(--ink-2);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.iso-edge.t-good {
+  stroke: var(--good);
+}
+.iso-edge.t-bad {
+  stroke: var(--bad);
+}
+.iso-edge.t-old {
+  stroke: var(--old);
+}
+.iso-edge.t-ai {
+  stroke: var(--ai);
+}
+.iso-edge.t-ink {
+  stroke: var(--ink);
+}
+
+/* The hidden start lives in the keyframes, so an edge is fully drawn whenever animation is off. */
+.iso-edge.fresh {
+  stroke-dasharray: 1;
+  animation: iso-draw 0.75s 0.2s ease-out both;
+}
+
+.iso-packet {
+  stroke: var(--white);
+  stroke-width: 2;
+  fill: var(--ink);
+}
+
+.iso-packet.t-good {
+  fill: var(--good);
+}
+.iso-packet.t-bad {
+  fill: var(--bad);
+}
+.iso-packet.t-old {
+  fill: var(--old);
+}
+.iso-packet.t-ai {
+  fill: var(--ai);
+}
+
+.iso-node.enter {
+  animation: iso-rise 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.25) both;
+}
+
+.iso-halo {
+  fill: rgba(23, 22, 15, 0.07);
+  stroke: var(--ink);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+  animation: iso-breathe 2.2s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@keyframes iso-rise {
+  from {
+    opacity: 0;
+    transform: translateY(-22px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes iso-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes iso-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes iso-breathe {
+  50% {
+    transform: scale(1.08);
+    opacity: 0.6;
+  }
+}
+
+.journey-legend {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 4px 6px 4px;
+  font: 11px var(--mono);
+  color: var(--ink-2);
+}
+
+.journey-legend li::before {
+  content: '';
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-right: 6px;
+  background: var(--ink);
+}
+
+.journey-legend .k-good::before {
+  background: var(--good);
+}
+.journey-legend .k-bad::before {
+  background: var(--bad);
+}
+.journey-legend .k-old::before {
+  background: var(--old);
+}
+.journey-legend .k-ai::before {
+  background: var(--ai);
+}
+
+.journey-panel {
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 16px 18px;
+}
+
+.journey-panel > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.journey-panel > header .tag {
+  margin-right: 0;
+}
+
+.journey-panel h2 {
+  font: 600 21px/1.2 var(--serif);
+  margin-bottom: 10px;
+}
+
+.journey-panel h4 {
+  margin: 14px 0 6px;
+}
+
+.journey-text {
+  display: grid;
+  gap: 9px;
+  color: var(--ink-2);
+  font-size: 13.5px;
+}
+
+.journey-text b {
+  color: var(--ink);
+}
+
+.journey-text blockquote,
+.journey-text .quote {
+  margin: 0;
+  padding: 8px 10px;
+  background: #f6f2e4;
+  border-left: 3px solid var(--ink);
+  font: italic 14px/1.45 var(--serif);
+  color: var(--ink);
+}
+
+.journey-text .flag {
+  background: var(--old-bg);
+  color: #5f3f06;
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.journey-text .chips {
+  margin-top: 0;
+}
+
+table.mini td {
+  padding: 4px 6px 4px 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: 12.5px;
+  vertical-align: top;
+}
+
+table.mini tr.miss td {
+  color: var(--muted);
+}
+
+table.mini td.num {
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+
+.sentences {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.sentences li {
+  border-left: 3px solid var(--good);
+  padding: 2px 0 2px 9px;
+  font: 14px/1.4 var(--serif);
+  color: var(--ink);
+}
+
+.sentences li em {
+  display: block;
+  font: normal 11px/1.4 var(--mono);
+  color: var(--good);
+}
+
+.sentences li.struck {
+  border-left-color: var(--bad);
+}
+
+.sentences li.struck span {
+  text-decoration: line-through;
+  color: var(--bad);
+}
+
+.sentences li.struck em {
+  color: var(--bad);
+}
+
+.changed {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font: 12px/1.6 var(--mono);
+  color: var(--ink-2);
+}
+
+.changed li::before {
+  content: '+ ';
+  color: var(--good);
+  font-weight: 700;
+}
+
+.journey-panel footer {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.keys {
+  font: 10.5px var(--mono);
+  color: var(--muted);
+  margin-top: 8px;
+  text-align: center;
+}
+
+kbd {
+  font: inherit;
+  border: 1px solid var(--rule-2);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0 4px;
+  background: var(--white);
+}
+
+.journey-lead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--rule-2);
+}
+
+.journey-lead .link {
+  margin-left: auto;
+}
+
+.tag.t-good {
+  background: var(--good-bg);
+  color: var(--good);
+}
+.tag.t-bad {
+  background: var(--bad-bg);
+  color: var(--bad);
+}
+.tag.t-old {
+  background: var(--old-bg);
+  color: var(--old);
+}
+.tag.t-ai {
+  background: var(--ai-bg);
+  color: var(--ai);
+}
+.tag.t-ink {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.journey-steps {
+  list-style: none;
+  display: flex;
+  margin: 0;
+  padding: 14px 10px 12px;
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  overflow-x: auto;
+}
+
+.journey-steps li {
+  flex: 1 1 0;
+  min-width: 62px;
+  position: relative;
+}
+
+.journey-steps li::before {
+  content: '';
+  position: absolute;
+  top: 13px;
+  left: -50%;
+  width: 100%;
+  height: 2px;
+  background: var(--rule-2);
+}
+
+.journey-steps li:first-child::before {
+  display: none;
+}
+
+.journey-steps li.done::before,
+.journey-steps li.current::before {
+  background: var(--ink);
+}
+
+.journey-steps button {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  width: 100%;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  padding: 0;
+  color: var(--muted);
+}
+
+.journey-steps b {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--rule-2);
+  background: var(--white);
+  font: 600 12px var(--mono);
+  color: var(--ink-2);
+}
+
+.journey-steps span {
+  font: 11px/1.2 var(--mono);
+  text-align: center;
+}
+
+.journey-steps li.done b {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.journey-steps li.current b {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+
+.journey-steps li.current span {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.journey-steps li.stop.current b {
+  background: var(--bad);
+  border-color: var(--bad);
+}
+
 /* ---------- competitors ---------- */
 
 .cards {
@@ -2363,9 +3108,15 @@ button.tile:hover {
   }
 }
 
+/* Reduced motion is respected everywhere, except inside a view where the viewer has turned motion on. */
 @media (prefers-reduced-motion: reduce) {
-  * {
+  *:not(.motion-on *) {
     animation: none !important;
     transition: none !important;
   }
+}
+
+.motion-off * {
+  animation: none !important;
+  transition: none !important;
 }
