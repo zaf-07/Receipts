@@ -192,7 +192,7 @@ Delivery itself is simulated: the send is recorded, charged and attributed, and 
 
 | Service | Role | State |
 | --- | --- | --- |
-| **Band** | The room where agents hand off by mention and a person approves. See [BAND.md](BAND.md) | Built to Band's documented Agent API and tested against a stand-in. Not yet run in a real room |
+| **Band** | The room where agents hand off by mention, each lead is a card on the task board, and a person approves. See [BAND.md](BAND.md) | Run in a real room from Band Desktop with eight agents, every call accepted. The approval reply is covered by stand-in tests; it has not yet been typed by a person in the real room |
 | **Flexprice** | Meters every billable operation as an event (lead enriched, draft generated, outreach sent, graph query evaluated) and holds the credit wallet. With `FLEXPRICE_WALLET=source` the wallet's real-time balance is the credit balance and the local ledger is a cache of it, so a top-up in Flexprice reopens the gate | Built to the published API reference and tested against a stand-in, including outages. Not yet run against a real account |
 | **Credit gate** | Enrichment and drafting hold credits before they start; a task that cannot be afforded is blocked with the reason | Built and tested |
 | **Snyk** | Dependency scan in CI | Workflow present; runs when `SNYK_TOKEN` is set |
@@ -216,7 +216,7 @@ Delivery itself is simulated: the send is recorded, charged and attributed, and 
 - **Rule tests:** state, scoring, snippet matching, extraction, the sentence format, the security scan, cost calculation.
 - **Scheduler tests:** dependencies, parallelism under a limit, retries, stale leases, idempotency, credit holds, and that workers cannot create tasks.
 - **Send-gate tests:** delivery is refused without a human review task, from inside any agent task, and by an ordinary update.
-- **Band room tests:** mention handoffs, the blocking review, a person approving and rejecting in the room, and an agent's forged approval being ignored.
+- **Band room tests:** mention handoffs, the blocking review, the task board with each agent's own status, a person approving and rejecting in the room, and an agent's forged approval being ignored.
 - **Flexprice tests:** the customer and wallet are found or created once, usage is metered as events, the wallet balance becomes the credit balance in both directions, nothing is corrected mid-run, top-ups are idempotent, and an outage leaves the ledger untouched.
 - **Mail server check:** a domain with mail servers, a null MX, no record, and a lookup that fails or times out.
 - **One end-to-end run** of the pipeline over the HTTP API on the seeded world.

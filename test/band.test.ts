@@ -6,8 +6,10 @@ import type { Snapshot } from '../shared/types';
 
 // The Band room, tested against a stand-in for Band's Agent API built from docs.band.ai:
 // X-API-Key auth, /agent/me, participants, mention-routed messages with their validation rules,
-// events, and the next / processing / processed message lifecycle. No real Band account is used,
-// so this proves the client follows the documented contract, not that Band accepts it.
+// events, the room task board, and the next / processing / processed message lifecycle. The
+// stand-in also copies two things the real service does that the docs do not spell out, both seen
+// when this was run in a real Band room: a mention arrives inside the text as @[[participant-id]],
+// and the owner's handle at the front of @owner/agent is read as a mention of the owner.
 
 interface Agent {
   key: string;
@@ -43,7 +45,21 @@ const band = {
   events: [] as { from: string; content: string; message_type: string; metadata?: Record<string, unknown> }[],
   inbox: new Map<string, Inbound[]>(),
   rejected: [] as string[],
+  tasks: [] as Card[],
 };
+
+interface Card {
+  id: string;
+  number: number;
+  subject: string;
+  detail: string;
+  state: 'active' | 'archived' | 'cancelled';
+  created_by: string;
+  /** One status per agent that has reported on the card. Band has no other way to assign work. */
+  assignments: Record<string, { status: string; active_form: string | null }>;
+  comments: { by: string; text: string }[];
+}
+const STATUSES = ['pending', 'in_progress', 'blocked', 'in_review', 'failed', 'completed'];
 
 const read = (req: IncomingMessage) =>
   new Promise<Record<string, any>>((resolve) => {
@@ -92,6 +108,25 @@ function mockBand(): Server {
       band.events.push({ from: me.id, ...body.event });
       return send(201, { data: { id: `evt-${band.events.length}`, message_type: body.event.message_type, success: true } });
     }
+    if (req.method === 'GET' && path.startsWith(`${room}/tasks`) && !path.slice(room.length + 6).includes('/')) {
+      return send(200, { data: band.tasks.filter((c) => c.state === 'active'), metadata: { has_more: false, limit: 100, next_cursor: null } });
+    }
+    if (req.method === 'POST' && path === `${room}/tasks`) {
+      if (!body.subject) return send(422, { error: 'validation_error' });
+      const card: Card = { id: `task-${band.tasks.length + 1}`, number: band.tasks.length + 1, subject: body.subject, detail: body.detail ?? '', state: 'active', created_by: me.id, assignments: {}, comments: [] };
+      band.tasks.push(card);
+      return send(201, { data: card });
+    }
+    const update = path.match(new RegExp(`^${room}/tasks/([^/]+)$`));
+    if (req.method === 'POST' && update) {
+      const card = band.tasks.find((c) => c.id === update[1] || String(c.number) === update[1]);
+      if (!card) return send(404, { error: 'not found' });
+      if (body.status !== undefined && (!STATUSES.includes(body.status) || card.state !== 'active')) return send(422, { error: 'validation_error' });
+      if (body.status) card.assignments[me.id] = { status: body.status, active_form: body.active_form ?? null };
+      if (body.comment) card.comments.push({ by: me.id, text: body.comment });
+      if (body.state) card.state = body.state;
+      return send(200, { data: card });
+    }
     if (req.method === 'GET' && path === `${room}/messages/next`) {
       const next = (band.inbox.get(me.id) ?? []).find((m) => m.status !== 'processed');
       return next ? send(200, { data: { ...next, message_type: 'text', chat_room_id: ROOM } }) : send(204);
@@ -139,7 +174,9 @@ async function until(check: () => boolean | Promise<boolean>, what: string): Pro
 }
 const id = (role: string) => `agent-${role}`;
 const sentBy = (role: string, to: string) => band.messages.filter((m) => m.from === id(role) && m.mentions.some((x) => x.id === to));
-function fromBand(to: string, sender: Pick<Inbound, 'sender_id' | 'sender_type' | 'sender_name'>, content: string): Inbound {
+/** A message arriving from the room. Band stores each mention inside the text as @[[participant-id]]. */
+function fromBand(to: string, sender: Pick<Inbound, 'sender_id' | 'sender_type' | 'sender_name'>, typed: string, asTyped = false): Inbound {
+  const content = asTyped ? typed : typed.replace(/@acme\/receipts-(\w+)/g, (_m, role: string) => `@[[${id(role)}]]`);
   const message: Inbound = { id: `in-${++seq}`, content, status: 'pending', ...sender };
   band.inbox.set(to, [...(band.inbox.get(to) ?? []), message]);
   return message;
@@ -218,13 +255,38 @@ test('a cleared draft is put to the named human as a blocking review, and a stru
   const asks = sentBy('security', HUMAN.id);
   assert.equal(asks.length, waiting.length, 'one request per draft waiting for a person');
   for (const m of waiting) assert.ok(asks.some((a) => a.content.includes(`approve ${m.id}`)), `the request for ${m.id} says how to answer`);
+  // The instruction names the agent. Writing its handle would put the owner's handle after an @, which Band reads as a mention of the owner.
+  assert.ok(asks.every((a) => /mention Receipts security here/.test(a.content) && !a.content.includes('@acme/receipts-security')));
 
   const reviews = band.events.filter((e) => e.message_type === 'attention');
   assert.equal(reviews.length, waiting.length);
   assert.ok(reviews.every((e) => e.metadata?.kind === 'review' && e.metadata?.blocking === true && e.from === id('security')));
+  assert.ok(reviews.every((e) => band.tasks.some((c) => c.id === e.metadata?.task_id)), 'each review points at the card it is about');
 
   // Fathom Works' only claim was struck, so the Skeptic tells the human directly and nothing is requested.
   assert.ok(sentBy('skeptic', HUMAN.id).some((m) => /Fathom Works/.test(m.content) && /blocked/i.test(m.content)));
+});
+
+test('each lead is a card on the room board, and every agent reports its own status on it', async () => {
+  const snap = await settled();
+  const { bandIdle } = await import('../server/integrations/band');
+  await bandIdle();
+  const card = (company: string) => band.tasks.find((c) => c.subject === `Outreach to ${company}`)!;
+  const status = (company: string, role: string) => card(company).assignments[id(role)]?.status;
+
+  const worked = snap.leads.filter((l) => l.person !== null || l.enrich_status === 'unresolved');
+  assert.equal(band.tasks.length, worked.length, 'one card per lead that reached the Enricher, and no duplicates');
+  assert.ok(band.tasks.every((c) => c.created_by === id('orchestrator')));
+
+  // A lead waiting for a person: each agent finished its part, and Security holds it in review.
+  assert.deepEqual(['enricher', 'writer', 'skeptic', 'security'].map((r) => status('Quillstack', r)), ['completed', 'completed', 'completed', 'in_review']);
+  assert.equal(card('Quillstack').assignments[id('security')].active_form, 'Waiting for a person to decide');
+  assert.ok(card('Quillstack').comments.some((c) => c.by === id('skeptic') && /verified/.test(c.text)), 'the result of each step is kept on the card');
+
+  // Two kinds of stop, each reported by the agent that stopped.
+  assert.equal(status('Fathom Works', 'skeptic'), 'blocked', 'the only claim was struck');
+  assert.equal(status('Tessera Health', 'enricher'), 'blocked', 'no contact, and none was guessed');
+  assert.equal(card('Tessera Health').assignments[id('writer')], undefined, 'nobody downstream joined a card that never reached them');
 });
 
 test('only a person in the room can approve: an agent saying approve is ignored', async () => {
@@ -261,6 +323,11 @@ test('a person approves in the room, and that reply is what releases the send', 
   const review = band.events.findIndex((e) => e.message_type === 'attention' && e.metadata?.draft_id === draft.id);
   assert.ok(band.events.some((e) => e.metadata?.resolves === `evt-${review + 1}`), 'the open review is resolved in the room');
   assert.ok(sentBy('orchestrator', HUMAN.id).some((m) => m.content.includes(`${draft.id} approved by Dana Reviewer`)));
+
+  // The LinkedIn note for the same lead still waits, so the card stays in review and says what happened.
+  const card = band.tasks.find((c) => c.subject === 'Outreach to Quillstack')!;
+  assert.equal(card.assignments[id('security')].status, 'in_review');
+  assert.ok(card.comments.some((c) => /Email approved by Dana Reviewer/i.test(c.text)));
 });
 
 test('a person rejects in the room with a reason, and a mistaken command gets an explanation', async () => {
@@ -273,7 +340,8 @@ test('a person rejects in the room with a reason, and a mistaken command gets an
   snap = await settled();
   assert.match(snap.leads.find((l) => l.id === cobalt.id)!.messages.find((m) => m.id === draft.id)!.block_reason!, /only a guess/);
 
-  const twice = fromBand(id('security'), dana, `@acme/receipts-security approve ${draft.id}`);
+  // Typed with the handle spelled out, as an older client would send it. Both spellings are understood.
+  const twice = fromBand(id('security'), dana, `@acme/receipts-security approve ${draft.id}`, true);
   await until(() => twice.status === 'processed', 'the second command to be consumed');
   const { bandIdle } = await import('../server/integrations/band');
   await bandIdle();

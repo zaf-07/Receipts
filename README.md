@@ -192,6 +192,7 @@ The agent team runs in a Band room. The room is where one agent hands work to th
 - **The decision happens in the room.** A verified, security-cleared draft is put to the room owner with a blocking review. Their reply, `approve m_ab12cd` or `reject m_ab12cd <reason>`, is what releases or stops the send.
 - **Only a person can decide.** A reply is acted on only when Band says a user sent it, and it runs the same approval as the review queue.
 - **People can steer.** Mention an agent with an instruction and it is kept as a note for that agent.
+- **The work is on the room's board.** Each lead's outreach is a card on the Band task board. Every agent reports its own status on it, and a card that stops says why: no contact, a struck claim, a failed scan, or no credits.
 
 Set `BAND_API_KEY` and `BAND_CHAT_ID`, and optionally one `BAND_KEY_<ROLE>` per role. Band stays optional: without it, or if it is unreachable, the pipeline runs the same and decisions are taken in the review queue.
 
@@ -233,11 +234,12 @@ For a signed local demonstration, set `INBOUND_WEBHOOK_SECRET`. Requests must th
 Run against the real service:
 
 - **Model-backed agents and live web mode.** Run end to end with a real key against the public web: search, page reads, extraction with snippet validation, a cited draft, the Skeptic and the Security scan.
+- **Band.** Run in a real room from Band Desktop with eight agents: mention handoffs, blocking reviews and the task board, with every call accepted. A person approving in the real room is the one step still covered only by the stand-in tests. See [docs/BAND.md](docs/BAND.md).
 
 Written but not yet exercised against the real service:
 
 - **Flexprice.** Built to its published API reference and tested against a stand-in for it: customer and wallet lookup, the real-time balance, top-ups, events, and outages. It has not yet been run against a real Flexprice account.
-- **Band.** Built to Band's documented Agent API and tested against a stand-in for it: mention handoffs, the blocking review, and a person approving in the room. It has not yet been run in a real Band room.
+
 
 ## Layout
 

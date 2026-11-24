@@ -1,7 +1,11 @@
-try {
-  process.loadEnvFile();
-} catch {
-  // No .env file. Everything has a default and the app runs without keys.
+// Tests never read the developer's .env: a real key there must not send a test run to a real
+// Band room, a real model or a real Flexprice account. The test runner sets NODE_TEST_CONTEXT.
+if (!process.env.NODE_TEST_CONTEXT) {
+  try {
+    process.loadEnvFile();
+  } catch {
+    // No .env file. Everything has a default and the app runs without keys.
+  }
 }
 
 const env = process.env;

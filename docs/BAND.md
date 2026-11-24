@@ -77,12 +77,41 @@ The pipeline itself does not stop. Band is best-effort: if the room is unreachab
 - **The room has no shortcut to delivery.** A reply runs the same `approve` as the review queue, which needs an open human review task for that exact draft. The delivery service repeats the evidence check and the security scan before it logs a send.
 - **Instructions are bounded.** A note from the room is capped in length and passed to the model as operator intent, to be followed only within the evidence rules.
 
-## Setup
+## The task board
 
-1. In Band, create a remote agent named `Receipts Orchestrator` and copy its API key.
-2. Optionally create one remote agent per role (Planner, Researcher, Enricher, Writer, Skeptic, Security, Analyst) under the same owner and copy each key. Two or three are enough to show real handoffs; Writer, Skeptic and Security make the best demo.
-3. Create a room, add yourself and the orchestrator, and copy the room id.
-4. Put the values in `.env`:
+Each lead's outreach is one card on the room's task board (the **Work** tab in Band Desktop). The orchestrator creates the card, and every agent reports its own status on it as the work reaches it, which is how Band assigns work: an agent joins a card by reporting on it, and nobody can report for another agent.
+
+| Moment | Who reports | Status on the card |
+| --- | --- | --- |
+| The lead is handed to the Enricher | Enricher | `in_progress` |
+| Contact resolved | Enricher, then Writer | `completed`, then `in_progress` |
+| Draft written | Writer, then Skeptic | `completed`, then `in_progress` |
+| Sources re-opened | Skeptic, then Security | `completed`, then `in_progress` |
+| Draft cleared | Security | `in_review`, with a blocking review that points at the card |
+| A person decides | Security | `completed`, or still `in_review` while another draft for the lead waits |
+| No contact, every claim struck, a failed scan, or no credits | The agent that stopped | `blocked`, with the reason |
+
+The result of each step is kept as a comment on the card, so the card carries its own history. **Reset the demo** archives the cards of the previous run.
+
+## Setup with Band Desktop
+
+1. Install Band Desktop and sign in. The `band` command-line tool comes with it.
+2. Create one agent per role. From this folder:
+
+   ```
+   band agent create --identity-only --name "Receipts Orchestrator" --description "Runs the Receipts GTM pipeline." --session receipts-orchestrator
+   ```
+
+   Repeat for Planner, Researcher, Enricher, Writer, Skeptic, Security and Analyst. Two or three are enough to show real handoffs; a role without its own agent speaks through the orchestrator and says so.
+3. In Band Desktop, open **Agents**, open each agent, and choose **⋮ → API key…** to copy its key.
+4. Stop the local workers, because Receipts is the runtime for these agents and two clients would compete for the same messages:
+
+   ```
+   band stop --all
+   ```
+
+5. Create a room and add yourself. Any room the orchestrator is in works; its id is in the room URL and in `band room list`.
+6. Put the values in `.env`:
 
    ```
    BAND_API_KEY=<orchestrator key>
@@ -92,13 +121,18 @@ The pipeline itself does not stop. Band is best-effort: if the room is unreachab
    BAND_KEY_SECURITY=<security key>
    ```
 
-5. Start Receipts. On start it validates each key, adds the role agents to the room and logs who decisions go to. `GET /api/band/status` and the Agent team screen show the connection.
+7. Start Receipts. On start it validates each key, adds the role agents to the room and logs who decisions go to. `GET /api/band/status` and the Agent team screen show the connection.
 
-Other settings: `BAND_HUMAN_HANDLE` picks the person who decides when it should not be the room owner, `BAND_API_BASE_URL` overrides the host, and `BAND_POLL_MS` sets how often replies are checked (default 4000).
+To decide on a draft, type `@` in the room, pick the agent that asked (Receipts Security), and write `approve m_ab12cd` or `reject m_ab12cd <reason>`.
+
+Other settings: `BAND_HUMAN_HANDLE` picks the person who decides when it should not be the first person in the room, `BAND_API_BASE_URL` overrides the host, and `BAND_POLL_MS` sets how often replies are checked (default 4000).
 
 ## What has and has not been tested
 
-- **Tested:** the whole flow above, against a stand-in for Band's Agent API written from [docs.band.ai](https://docs.band.ai/api/agent-api). The stand-in enforces Band's documented rules: a mention is required, the mentioned participant must be in the room, and an agent cannot mention itself. See [test/band.test.ts](../test/band.test.ts).
-- **Not tested:** a real Band room. No Band account was available while this was written, so the first run with real keys is the real test. Things most likely to need adjusting are the API host (the docs name both `app.band.ai` and `api.band.ai`; both are tried) and the shape of a participant's handle.
+- **Run in a real Band room, from Band Desktop.** Eight agents created with the `band` tool, their keys read from Band Desktop, and a full pipeline run against `app.band.ai`: every key validated, the agents added to the room, 120-odd messages, events and card updates accepted with no errors, the mention handoffs and the blocking reviews shown in the room, and the cards shown on the Work board.
+- **What the real room changed.** Band stores a mention inside the text as `@[[participant-id]]`, so replies are parsed for that form as well as a typed handle. Band also reads the owner's handle at the front of `@owner/agent` as a mention of the owner, so instructions name the agent instead of writing its handle. Both are now in the stand-in.
+- **A person approving in the real room: not yet.** The reply path is covered by the stand-in tests, which use the real message shape, but the approval itself has to be typed by a person, and that has not been done in the real room yet.
+- **The stand-in.** [test/band.test.ts](../test/band.test.ts) runs the whole flow against a stand-in for Band's Agent API written from [docs.band.ai](https://docs.band.ai/api/agent-api). It enforces Band's documented rules: a mention is required, the mentioned participant must be in the room, and an agent cannot mention itself. The test suite never reads `.env`, so it cannot reach a real room.
 - **Polling, not WebSocket.** Replies are read with Band's `messages/next` endpoint on a timer. Band recommends its WebSocket for production; polling keeps the integration to plain HTTP.
 - **One process.** The agents are separate identities in the room, but they run in one Receipts process. The handoffs that route work inside Receipts are its own task runs; the room carries the same handoffs in the open and carries the human decision for real.
+- **Not Band-run agents.** In Band Desktop these agents show as command-line agents with no active session, because Band does not start them: Receipts does their work and speaks for them through the Agent API.

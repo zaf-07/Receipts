@@ -9,6 +9,8 @@ import { config } from '../config';
 //   - A verified, security-cleared draft is put to a named human with an attention event, and
 //     that human's reply in the room ("approve m_ab12cd") is what releases the send.
 //   - A person can also @mention an agent with an instruction, which is kept as a note for it.
+//   - Each lead's outreach is a card on the room's task board, and every agent reports its own
+//     status on that card as the work passes through its hands.
 //
 // Band is never a dependency: every call is best-effort, and the pipeline runs the same without it.
 // A reply is only ever acted on when Band says a User sent it. An agent cannot approve anything.
@@ -72,6 +74,8 @@ const state = {
   /** Open review requests in the room, by draft id, so the decision can resolve them. */
   reviews: new Map<string, string>(),
   handled: new Set<string>(),
+  /** Cards on the room's task board, by subject. Subjects are stable, so a restart finds its cards again. */
+  cards: new Map<string, string>(),
 };
 
 let onDecision: (d: BandDecision) => string = () => 'No one is listening for decisions.';
@@ -196,6 +200,13 @@ export async function connectBand(): Promise<string> {
     if (reply.ok) added++;
   }
 
+  // Pick up the cards already on the board, so a restart updates them instead of adding duplicates.
+  state.cards.clear();
+  const board = await call(state.base, config.band.apiKey, 'GET', `${chat()}/tasks?limit=100`);
+  if (board.ok && Array.isArray(board.data)) {
+    for (const t of board.data as { id: string; subject: string }[]) state.cards.set(t.subject, t.id);
+  }
+
   const users = participants.filter((p) => p.type === 'User');
   state.human = users.find((p) => config.band.humanHandle && p.handle === config.band.humanHandle) ?? users.find((p) => p.role === 'owner') ?? users[0] ?? null;
   state.ready = true;
@@ -256,14 +267,24 @@ export function say(from: Speaker, to: Speaker | 'human', text: string): void {
   });
 }
 
-/** Put a draft to the human: a mention so it reaches them, and an attention event that blocks until resolved. */
-export function requestDecision(from: Speaker, draftId: string, text: string): void {
+/**
+ * Put a draft to the human: a mention so it reaches them, and an attention event that blocks until
+ * resolved. The instruction names the agent instead of writing its handle: Band reads the owner's
+ * handle at the front of `@owner/agent` as a mention of the owner.
+ */
+export function requestDecision(from: Speaker, draftId: string, text: string, card?: string): void {
   if (!state.ready) return;
   void later(async () => {
     const me = sender(from);
-    const how = `Reply to @${me.handle} with "approve ${draftId}" or "reject ${draftId} <reason>".`;
+    const how = `To decide, mention ${me.name} here and write "approve ${draftId}" or "reject ${draftId} <reason>".`;
     if (state.human) await postMessage(from, state.human, `${text} ${how}`);
-    const id = await postEvent(from, 'attention', `${text} ${how}`, { kind: 'review', blocking: true, draft_id: draftId });
+    const task = card ? state.cards.get(card) : undefined;
+    const id = await postEvent(from, 'attention', `Review open for ${draftId}. Nothing sends until a person decides.`, {
+      kind: 'review',
+      blocking: true,
+      draft_id: draftId,
+      ...(task ? { task_id: task } : {}),
+    });
     if (id) state.reviews.set(draftId, id);
   });
 }
@@ -281,6 +302,58 @@ export function resolveDecision(draftId: string, text: string): void {
   });
 }
 
+// ---------- the room's task board ----------
+
+export type CardStatus = 'pending' | 'in_progress' | 'blocked' | 'in_review' | 'failed' | 'completed';
+
+export interface CardStep {
+  from: Speaker;
+  status: CardStatus;
+  /** The live "doing X" line Band shows next to the agent on the card. */
+  doing?: string;
+  /** Kept in the card's history. */
+  comment?: string;
+}
+
+/**
+ * Move a piece of work on the room's task board. The card is created the first time it is
+ * mentioned. Each step is one agent reporting its own status, which is how Band assigns work:
+ * an agent joins a card by reporting on it, and nobody can report for another agent.
+ */
+export function track(subject: string, detail: string, steps: CardStep[]): void {
+  if (!state.ready) return;
+  void later(async () => {
+    let id = state.cards.get(subject);
+    if (!id) {
+      const made = await call(state.base, config.band.apiKey, 'POST', `${chat()}/tasks`, { subject: subject.slice(0, 200), detail: detail.slice(0, 2000) });
+      id = made.ok ? (made.data as { id?: string } | null)?.id : undefined;
+      if (!id) return;
+      state.cards.set(subject, id);
+      state.sent++;
+    }
+    for (const step of steps) {
+      const who = state.identities.get(step.from);
+      // A role with no agent of its own cannot join a card as itself, so the orchestrator says it in a comment.
+      const body = who
+        ? { status: step.status, ...(step.doing ? { active_form: step.doing.slice(0, 200) } : {}), ...(step.comment ? { comment: step.comment.slice(0, 1900) } : {}) }
+        : { comment: `[${step.from}] ${step.status}: ${step.comment ?? step.doing ?? ''}`.slice(0, 1900) };
+      const reply = await call(state.base, (who ?? state.identities.get('orchestrator')!).key, 'POST', `${chat()}/tasks/${id}`, body);
+      if (reply.ok) state.sent++;
+    }
+  });
+}
+
+/** A fresh start: put away the cards of the previous run so the board shows only this one. */
+export function clearBoard(): void {
+  if (!state.ready) return;
+  void later(async () => {
+    for (const id of state.cards.values()) {
+      await call(state.base, config.band.apiKey, 'POST', `${chat()}/tasks/${id}`, { state: 'archived' });
+    }
+    state.cards.clear();
+  });
+}
+
 // ---------- listening ----------
 
 const COMMAND = /^(approve|reject)\s+(m_[0-9a-f]{4,12})\b\s*(.*)$/i;
@@ -290,7 +363,12 @@ function handle(message: InboundMessage, role: Speaker): string | null {
   if (message.sender_type !== 'User') return null;
   state.received++;
   const author = message.sender_name?.trim() || 'Band user';
-  const text = message.content.replace(/@[\w./-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  // Band stores a mention inside the text as @[[participant-id]]; a typed one may still read @owner/handle.
+  const text = message.content
+    .replace(/@\[\[[^\]]*\]\]/g, ' ')
+    .replace(/@[\w./-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
   const command = text.match(COMMAND);
   if (command) {
     return onDecision({ action: command[1].toLowerCase() as 'approve' | 'reject', messageId: command[2], reviewer: author, note: command[3].trim().slice(0, 400) });
