@@ -75,6 +75,11 @@ export function createApp() {
   const api = express.Router();
 
   api.get('/snapshot', (_req, res) => res.json(buildSnapshot(currentRun())));
+  api.post('/billing/sync', async (_req, res) => {
+    if (!flexpriceEnabled()) throw new UserError('Flexprice is not configured for this workspace.');
+    await syncBilling();
+    res.json({ wallet: buildSnapshot(currentRun()).credits.wallet });
+  });
   api.get('/example', (_req, res) => res.json(EXAMPLE_PROFILE));
   api.get('/roles', (_req, res) => res.json(AGENT_ROLES));
   api.get('/band/status', (_req, res) =>

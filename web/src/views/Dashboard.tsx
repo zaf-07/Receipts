@@ -1,4 +1,4 @@
-import type { SegmentRow, WalletStatus } from '../../../shared/types';
+import type { SegmentRow } from '../../../shared/types';
 import { useUi } from '../api';
 import { Section, fmtDate, fmtTime, pct } from '../components';
 
@@ -35,22 +35,15 @@ function Funnel({ rows }: { rows: SegmentRow[] }) {
 
 const OP: Record<string, string> = { enrich: 'Lead enriched', draft: 'Draft generated', send: 'Outreach sent', topup: 'Top-up', grant: 'Starting credits', flexprice: 'Flexprice wallet' };
 
-/** One sentence on where the credit balance comes from, so nobody has to guess which number is real. */
-function billingLine(w: WalletStatus): string {
-  if (!w.configured) return 'Metered on the local ledger. Set FLEXPRICE_API_KEY to meter usage to Flexprice.';
-  const events = `${w.events_sent} usage event${w.events_sent === 1 ? '' : 's'} sent to Flexprice`;
-  if (!w.connected || w.balance === null) {
-    return `${events}. Its wallet could not be read${w.last_error ? ` (${w.last_error})` : ''}, so the local ledger is the gate.`;
-  }
-  const read = w.synced_at ? `, read at ${fmtTime(w.synced_at)}` : '';
-  if (w.mode === 'source') return `The balance is the Flexprice wallet: ${w.balance} credits${read}. ${events}.`;
-  return `${events}. The Flexprice wallet holds ${w.balance} credits${read}; the local ledger is the gate.`;
-}
-
 export function Dashboard() {
-  const { snap, go } = useUi();
+  const { snap, go, act, refresh } = useUi();
   const m = snap.metrics;
+  const wallet = snap.credits.wallet;
   const declined = m.declined.not_yet + m.declined.disqualified;
+
+  const refreshWallet = async () => {
+    if (await act('/billing/sync')) await refresh();
+  };
 
   return (
     <div className="page">
@@ -129,8 +122,7 @@ export function Dashboard() {
             <dd>{m.usage.graph_queries}</dd>
           </dl>
           <p className="muted small">
-            Costs: enrich {snap.credits.costs.enrich}, draft {snap.credits.costs.draft}, send {snap.credits.costs.send} credits.{' '}
-            {billingLine(snap.credits.wallet)}
+            Costs: enrich {snap.credits.costs.enrich}, draft {snap.credits.costs.draft}, send {snap.credits.costs.send} credits.
           </p>
         </Section>
         <Section title="Credit ledger" aside={<span className="tag">{snap.credits.balance} left</span>}>
@@ -148,6 +140,43 @@ export function Dashboard() {
           </ul>
         </Section>
       </div>
+
+      <Section
+        title="Flexprice billing"
+        aside={
+          <span className={`billing-status ${wallet.connected ? 'is-connected' : wallet.configured ? 'has-warning' : ''}`}>
+            <i /> {wallet.connected ? 'Connected' : wallet.configured ? 'Connection issue' : 'Local ledger'}
+          </span>
+        }
+      >
+        <div className="billing-panel">
+          <div className="billing-balance">
+            <span>Wallet balance</span>
+            <strong>{wallet.balance == null ? '—' : wallet.balance}</strong>
+            <small>{wallet.balance === 1 ? 'credit' : 'credits'} · {wallet.mode === 'source' ? 'wallet controls the gate' : 'local ledger controls the gate'}</small>
+          </div>
+          <dl className="billing-details">
+            <dt>Usage events accepted</dt>
+            <dd>{wallet.events_sent}</dd>
+            <dt>Last balance read</dt>
+            <dd>{wallet.synced_at ? `${fmtDate(wallet.synced_at)} ${fmtTime(wallet.synced_at)}` : 'Not synced yet'}</dd>
+            {wallet.last_error && <>
+              <dt>Last issue</dt>
+              <dd className="billing-error">{wallet.last_error}</dd>
+            </>}
+          </dl>
+          <div className="billing-actions">
+            <p className="muted small">
+              {wallet.connected
+                ? 'Receipts sends metered usage to Flexprice. Events accepted is counted since this server process started.'
+                : wallet.configured
+                  ? 'Receipts will keep using its local credit ledger while it retries the Flexprice connection.'
+                  : 'Flexprice is not configured. Usage and credit gating are handled by the local ledger.'}
+            </p>
+            {wallet.configured && <button type="button" className="btn small" onClick={() => void refreshWallet()}>Refresh wallet</button>}
+          </div>
+        </div>
+      </Section>
     </div>
   );
 }

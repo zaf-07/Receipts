@@ -58,6 +58,7 @@ export function useSnapshot() {
 
 export interface Ui {
   snap: Snapshot;
+  refresh: () => Promise<void>;
   /** Run a server action. Failures surface as a notice instead of being swallowed. */
   act: (path: string, body?: unknown) => Promise<boolean>;
   openLead: (id: string) => void;

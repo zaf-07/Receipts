@@ -100,7 +100,7 @@ function Feed({ entries, onLead }: { entries: ActivityEntry[]; onLead: (id: stri
 }
 
 export function App() {
-  const { snap, offline } = useSnapshot();
+  const { snap, offline, refresh } = useSnapshot();
   const [view, setView] = useState<View>(initialView);
   const [leadId, setLeadId] = useState<string | null>(null);
   // On a narrow window the feed overlays the page, so it starts closed there.
@@ -140,6 +140,7 @@ export function App() {
       snap
         ? {
             snap,
+            refresh,
             act,
             openLead: setLeadId,
             openTask: (id: string) => {
